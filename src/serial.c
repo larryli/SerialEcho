@@ -1,10 +1,10 @@
 /*
  * serial.c - Serial port communication module
  *
- * Implements serial port enumeration, open/close, and data loopback
+ * Implements serial port enumeration, open/close, and data reception
  * using WaitCommEvent-based event-driven I/O.
  *
- * Based on SerialPort implementation by David MacDermot.
+ * Received data is passed to protocol handler for processing.
  */
 
 #include "serial.h"
@@ -123,14 +123,12 @@ static DWORD WINAPI Listener_Proc(LPVOID param)
     DWORD dwEvtMask = 0;
     OVERLAPPED ov = {0};
     HANDLE hReadEvent = CreateEvent(NULL, TRUE, FALSE, NULL);
-    HANDLE hWriteEvent = CreateEvent(NULL, TRUE, FALSE, NULL);
+    BOOL errorExit = FALSE;
 
     TRACE_LOG(TAG, "Listener started");
 
-    if (!hReadEvent || !hWriteEvent) {
-        TRACE_LOG(TAG, "ERROR: Failed to create events");
-        if (hReadEvent) CloseHandle(hReadEvent);
-        if (hWriteEvent) CloseHandle(hWriteEvent);
+    if (!hReadEvent) {
+        TRACE_LOG(TAG, "ERROR: Failed to create event");
         return 1;
     }
 
@@ -138,7 +136,6 @@ static DWORD WINAPI Listener_Proc(LPVOID param)
     if (!ov.hEvent) {
         TRACE_LOG(TAG, "ERROR: Failed to create ov.hEvent");
         CloseHandle(hReadEvent);
-        CloseHandle(hWriteEvent);
         return 1;
     }
 
@@ -147,8 +144,10 @@ static DWORD WINAPI Listener_Proc(LPVOID param)
 
     while (ctx->bRunning) {
         /* Set comm mask to listen for receive events */
-        if (!SetCommMask(ctx->hPort, EV_RXCHAR | EV_ERR))
+        if (!SetCommMask(ctx->hPort, EV_RXCHAR | EV_ERR)) {
+            errorExit = TRUE;
             break;
+        }
 
         /* Wait for comm event */
         ResetEvent(ov.hEvent);
@@ -158,14 +157,20 @@ static DWORD WINAPI Listener_Proc(LPVOID param)
                 DWORD waitResult = WaitForSingleObject(ov.hEvent, 100);
                 if (waitResult == WAIT_TIMEOUT)
                     continue;
-                if (waitResult != WAIT_OBJECT_0)
+                if (waitResult != WAIT_OBJECT_0) {
+                    errorExit = (waitResult == WAIT_FAILED);
                     break;
-                if (!GetOverlappedResult(ctx->hPort, &ov, &(DWORD){0}, FALSE))
+                }
+                if (!GetOverlappedResult(ctx->hPort, &ov, &(DWORD){0}, FALSE)) {
+                    errorExit = TRUE;
                     break;
+                }
             } else if (GetLastError() == ERROR_OPERATION_ABORTED) {
+                /* Normal shutdown via CancelIo */
                 break;
             } else {
                 TRACE_LOG(TAG, "ERROR: WaitCommEvent failed: %lu", GetLastError());
+                errorExit = TRUE;
                 break;
             }
         }
@@ -179,8 +184,10 @@ static DWORD WINAPI Listener_Proc(LPVOID param)
             COMSTAT comStat;
             DWORD dwErrors;
 
-            if (!ClearCommError(ctx->hPort, &dwErrors, &comStat))
+            if (!ClearCommError(ctx->hPort, &dwErrors, &comStat)) {
+                errorExit = TRUE;
                 break;
+            }
 
             if (comStat.cbInQue > 0 && comStat.cbInQue < READ_BUFFER_SIZE) {
                 DWORD toRead = comStat.cbInQue;
@@ -193,8 +200,10 @@ static DWORD WINAPI Listener_Proc(LPVOID param)
                 } else if (GetLastError() == ERROR_IO_PENDING) {
                     if (WaitForSingleObject(hReadEvent, 1000) != WAIT_OBJECT_0)
                         continue;
-                    if (!GetOverlappedResult(ctx->hPort, &ovRead, &bytesRead, FALSE))
+                    if (!GetOverlappedResult(ctx->hPort, &ovRead, &bytesRead, FALSE)) {
+                        errorExit = TRUE;
                         continue;
+                    }
                 } else {
                     continue;
                 }
@@ -213,34 +222,24 @@ static DWORD WINAPI Listener_Proc(LPVOID param)
                         }
                     }
 
-                    /* Echo received data back (TX) */
-                    DWORD bytesWritten = 0;
-                    OVERLAPPED ovWrite = {0};
-                    ovWrite.hEvent = hWriteEvent;
-                    ResetEvent(hWriteEvent);
-
-                    if (WriteFile(ctx->hPort, buffer, bytesRead, &bytesWritten, &ovWrite)) {
-                        /* Write completed synchronously */
-                    } else if (GetLastError() == ERROR_IO_PENDING) {
-                        WaitForSingleObject(hWriteEvent, 1000);
-                        GetOverlappedResult(ctx->hPort, &ovWrite, &bytesWritten, FALSE);
-                    }
-
-                    /* Post TX data to UI thread for logging */
-                    if (bytesWritten > 0 && ctx->hNotify && IsWindow(ctx->hNotify)) {
-                        size_t allocSize = (size_t)bytesWritten + 1;
-                        void *copy = HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, allocSize);
-                        if (copy) {
-                            CopyMemory(copy, buffer, bytesWritten);
-                            if (!PostMessage(ctx->hNotify, WM_USER + 2, (WPARAM)bytesWritten, (LPARAM)copy)) {
-                                TRACE_LOG(TAG, "ERROR: PostMessage TX failed: %lu", GetLastError());
-                                HeapFree(GetProcessHeap(), 0, copy);
-                            }
-                        }
-                    }
+                    /*
+                     * ============================================================
+                     * RECEIVE CALLBACK - Extension Point
+                     * ============================================================
+                     *
+                     * Call the registered callback to process received data.
+                     * Set callback via Serial_SetReceiveCallback().
+                     *
+                     * Current default: ECHO - send received data back (protocol.c)
+                     *
+                     * To customize: implement your own callback and register it.
+                     *
+                     * ============================================================
+                     */
+                    if (ctx->onReceive)
+                        ctx->onReceive(ctx, buffer, bytesRead, ctx->hNotify);
 
                     ctx->dwRxBytes += bytesRead;
-                    ctx->dwTxBytes += bytesWritten;
                 }
             }
         }
@@ -253,10 +252,16 @@ static DWORD WINAPI Listener_Proc(LPVOID param)
         }
     }
 
-    TRACE_LOG(TAG, "Listener exiting");
+    TRACE_LOG(TAG, "Listener exiting (error=%d)", errorExit);
     CloseHandle(ov.hEvent);
     CloseHandle(hReadEvent);
-    CloseHandle(hWriteEvent);
+
+    /* Notify UI if this was an unexpected exit */
+    if (errorExit && ctx->hNotify && IsWindow(ctx->hNotify)) {
+        DWORD lastErr = GetLastError();
+        PostMessage(ctx->hNotify, WM_USER + 3, (WPARAM)lastErr, 0);
+    }
+
     return 0;
 }
 
@@ -372,9 +377,6 @@ void Serial_Close(SERIAL_CTX *ctx)
     if (ctx->bRunning) {
         ctx->bRunning = FALSE;
 
-        /* Clear notify window to prevent new messages */
-        ctx->hNotify = NULL;
-
         /* Unblock WaitCommEvent by clearing comm mask */
         if (ctx->hPort != INVALID_HANDLE_VALUE && ctx->hPort != NULL) {
             SetCommMask(ctx->hPort, 0);
@@ -389,6 +391,9 @@ void Serial_Close(SERIAL_CTX *ctx)
             CloseHandle(ctx->hThread);
             ctx->hThread = NULL;
         }
+
+        /* Thread has exited, now safe to clear notify handle */
+        ctx->hNotify = NULL;
     }
 
     /* Close port handle */
@@ -433,4 +438,51 @@ BOOL Serial_GetPortName(int index, WCHAR *portName, int maxLen)
 DWORD Serial_GetTxBytes(const SERIAL_CTX *ctx)
 {
     return ctx->dwTxBytes;
+}
+
+/* Write data to serial port */
+DWORD Serial_WriteData(SERIAL_CTX *ctx, const BYTE *data, DWORD len, HWND hNotify)
+{
+    if (!ctx || ctx->hPort == INVALID_HANDLE_VALUE || ctx->hPort == NULL)
+        return 0;
+    if (!data || len == 0)
+        return 0;
+
+    OVERLAPPED ov = {0};
+    HANDLE hEvent = CreateEvent(NULL, TRUE, FALSE, NULL);
+    if (!hEvent)
+        return 0;
+    ov.hEvent = hEvent;
+
+    DWORD bytesWritten = 0;
+    BOOL result = WriteFile(ctx->hPort, data, len, &bytesWritten, &ov);
+    if (!result && GetLastError() == ERROR_IO_PENDING) {
+        WaitForSingleObject(hEvent, 1000);
+        result = GetOverlappedResult(ctx->hPort, &ov, &bytesWritten, FALSE);
+    }
+    CloseHandle(hEvent);
+
+    if (result && bytesWritten > 0) {
+        ctx->dwTxBytes += bytesWritten;
+
+        /* Post TX data to UI thread for logging */
+        if (hNotify && IsWindow(hNotify)) {
+            void *copy = HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, bytesWritten + 1);
+            if (copy) {
+                CopyMemory(copy, data, bytesWritten);
+                if (!PostMessage(hNotify, WM_USER + 2, (WPARAM)bytesWritten, (LPARAM)copy)) {
+                    HeapFree(GetProcessHeap(), 0, copy);
+                }
+            }
+        }
+    }
+
+    return bytesWritten;
+}
+
+/* Set the receive data callback */
+void Serial_SetReceiveCallback(SERIAL_CTX *ctx, SERIAL_RX_CB cb)
+{
+    if (ctx)
+        ctx->onReceive = cb;
 }

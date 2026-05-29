@@ -24,6 +24,7 @@
 |--------|------|----------|
 | Connect | 弹出串口选择对话框 | 已连接时禁用（灰色） |
 | Disconnect | 断开当前串口 | 未连接时禁用（灰色） |
+| Ping | 发送随机数据测试连接 | 未连接时禁用（灰色） |
 
 ### Log 日志菜单
 
@@ -60,12 +61,13 @@
 |------|------|----------|----------|
 | 连接 | toolbar.bmp[0] | Serial/Connect | 已连接时禁用 |
 | 断开 | toolbar.bmp[1] | Serial/Disconnect | 未连接时禁用 |
+| Ping | toolbar.bmp[4] | Serial/Ping | 未连接时禁用 |
 | *(分隔符)* | - | - | - |
 | 清除 | toolbar.bmp[2] | Log/Clear | 始终可用 |
 | 保存 | toolbar.bmp[3] | Log/Save as... | 始终可用 |
 
 **工具栏要求：**
-- 使用合并的 BMP 位图（4个16x16图标）
+- 使用合并的 BMP 位图（5个16x16图标）
 - 只显示图标，不显示文本
 - 鼠标悬停显示提示文字
 
@@ -181,3 +183,32 @@ LastPort=COM10
 - **校验**: 无
 - **停止位**: 1
 - **读取方式**: WaitCommEvent 事件驱动 + Overlapped I/O
+
+---
+
+## 协议处理框架
+
+协议处理模块 `protocol.c/protocol.h` 提供简单的数据处理接口。
+
+### 当前实现
+
+| 功能 | 说明 |
+|------|------|
+| ECHO | 接收数据原样返回（回环测试） |
+| PING | 发送 1-256 字节的随机数据 |
+
+### 二次开发
+
+修改 `Protocol_ProcessData()` 函数实现自定义协议：
+
+```c
+void Protocol_ProcessData(SERIAL_CTX *ctx, const BYTE *data,
+                           DWORD len, HWND hNotify)
+{
+    // Example: Respond to specific commands
+    if (data[0] == 0x01) {
+        BYTE resp[] = {0x01, GetSensorValue()};
+        Serial_WriteData(ctx, resp, sizeof(resp), hNotify);
+    }
+}
+```

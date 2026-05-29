@@ -46,6 +46,12 @@ void GUI_OnConnect(HWND hMainWnd);
 void GUI_OnDisconnect(HWND hMainWnd);
 
 /*
+ * GUI_OnPing - Handle ping command (send random data)
+ * @hMainWnd: Main window handle
+ */
+void GUI_OnPing(HWND hMainWnd);
+
+/*
  * GUI_OnLogClear - Clear all log content
  * @hMainWnd: Main window handle
  */
@@ -56,6 +62,12 @@ void GUI_OnLogClear(HWND hMainWnd);
  * @hMainWnd: Main window handle
  */
 void GUI_OnLogSaveAs(HWND hMainWnd);
+
+/*
+ * GUI_OnLogFont - Show font selection dialog
+ * @hMainWnd: Main window handle
+ */
+void GUI_OnLogFont(HWND hMainWnd);
 
 /*
  * GUI_OnExit - Handle exit command with confirmation if connected

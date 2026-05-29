@@ -15,12 +15,14 @@ set(CMAKE_C_STANDARD 11)
 
 # Source files
 add_executable(SerialEcho WIN32
-    main.c
-    gui.c
-    serial.c
-    config.c
-    trace.c
-    resource.rc
+    src/main.c
+    src/gui.c
+    src/serial.c
+    src/protocol.c
+    src/config.c
+    src/lang.c
+    src/trace.c
+    src/resource.rc
 )
 
 # Disable automatic manifest generation (using custom manifest in resource.rc)
@@ -36,6 +38,9 @@ target_link_libraries(SerialEcho PRIVATE
 
 # Compiler options
 target_compile_options(SerialEcho PRIVATE /utf-8)
+
+# Resource compiler options
+set_source_files_properties(src/resource.rc PROPERTIES COMPILE_FLAGS "/utf-8")
 
 # Preprocessor definitions
 target_compile_definitions(SerialEcho PRIVATE

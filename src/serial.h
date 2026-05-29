@@ -3,6 +3,10 @@
  *
  * Provides functions for enumerating, opening, closing serial ports,
  * and reading/writing data using WaitCommEvent-based event-driven I/O.
+ *
+ * The receive callback allows decoupling the protocol handler from
+ * the serial module. Register a callback via Serial_SetReceiveCallback()
+ * to process received data.
  */
 
 #ifndef SERIAL_H
@@ -13,16 +17,25 @@
 /* Data direction for log display */
 typedef enum { DIR_RX, DIR_TX } DATA_DIR;
 
+/* Receive callback type - called when data is received
+ * @ctx: Serial context
+ * @data: Received data buffer
+ * @len: Data length
+ * @hNotify: Window handle for UI notifications
+ */
+typedef void (*SERIAL_RX_CB)(void *ctx, const BYTE *data, DWORD len, HWND hNotify);
+
 /* Serial port context */
 typedef struct {
     HANDLE hPort;           /* Serial port handle */
     HANDLE hThread;         /* Listener thread handle */
     HANDLE hStartEvent;     /* Thread start synchronization event */
     HANDLE hIOEvent;        /* I/O completion event */
-    HWND hNotify;           /* Window to receive WM_USER+1 on data arrival */
+    HWND hNotify;           /* Window to receive WM_USER+1/+2/+3 */
     volatile BOOL bRunning; /* Thread running flag */
     volatile DWORD dwRxBytes; /* Total bytes received */
     volatile DWORD dwTxBytes; /* Total bytes sent */
+    SERIAL_RX_CB onReceive; /* Receive data callback */
 } SERIAL_CTX;
 
 /*
@@ -36,7 +49,7 @@ BOOL Serial_EnumPorts(HWND hCombo);
  * Serial_Open - Open a serial port and start listener thread
  * @ctx: Serial context to initialize
  * @portName: Port name (e.g. L"COM10")
- * @hNotify: Window to receive WM_USER+1 on data arrival
+ * @hNotify: Window to receive data/error notifications
  * Returns: TRUE on success
  */
 BOOL Serial_Open(SERIAL_CTX *ctx, const WCHAR *portName, HWND hNotify);
@@ -76,5 +89,22 @@ DWORD Serial_GetRxBytes(const SERIAL_CTX *ctx);
  * Returns: Bytes sent
  */
 DWORD Serial_GetTxBytes(const SERIAL_CTX *ctx);
+
+/*
+ * Serial_WriteData - Write data to serial port
+ * @ctx: Serial context
+ * @data: Data to write
+ * @len: Length of data
+ * @hNotify: Window to receive TX notification (can be NULL)
+ * Returns: Number of bytes written
+ */
+DWORD Serial_WriteData(SERIAL_CTX *ctx, const BYTE *data, DWORD len, HWND hNotify);
+
+/*
+ * Serial_SetReceiveCallback - Set the receive data callback
+ * @ctx: Serial context
+ * @cb: Callback function (NULL to disable)
+ */
+void Serial_SetReceiveCallback(SERIAL_CTX *ctx, SERIAL_RX_CB cb);
 
 #endif /* SERIAL_H */

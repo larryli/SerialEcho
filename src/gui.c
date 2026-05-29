@@ -7,11 +7,15 @@
 
 #include "gui.h"
 #include "serial.h"
+#include "protocol.h"
 #include "resource.h"
 #include "config.h"
+#include "lang.h"
 #include "trace.h"
 #include <richedit.h>
 #include <commdlg.h>
+#include <dbt.h>
+#include <devguid.h>
 #include <commctrl.h>
 #include <stdio.h>
 
@@ -40,9 +44,11 @@ static void UpdateMenuState(HWND hWnd)
 
     EnableMenuItem(hMenu, IDM_CONNECT, connected ? MF_GRAYED : MF_ENABLED);
     EnableMenuItem(hMenu, IDM_DISCONNECT, connected ? MF_ENABLED : MF_GRAYED);
+    EnableMenuItem(hMenu, IDM_PING, connected ? MF_ENABLED : MF_GRAYED);
 
     SendMessageW(g_hToolbar, TB_ENABLEBUTTON, IDM_CONNECT, !connected);
     SendMessageW(g_hToolbar, TB_ENABLEBUTTON, IDM_DISCONNECT, connected);
+    SendMessageW(g_hToolbar, TB_ENABLEBUTTON, IDM_PING, connected);
 }
 
 /* Update window title with port name */
@@ -75,9 +81,9 @@ static void UpdateStatusBar(void)
     if (Serial_IsOpen(&g_serial))
         SendMessageW(g_hStatusbar, SB_SETTEXT, 1, (LPARAM)g_szPort);
     else
-        SendMessageW(g_hStatusbar, SB_SETTEXT, 1, (LPARAM)L"Disconnected");
+        SendMessageW(g_hStatusbar, SB_SETTEXT, 1, (LPARAM)LoadStr(IDS_DISCONNECTED));
 
-    SendMessageW(g_hStatusbar, SB_SETTEXT, 2, (LPARAM)L"115200,8N1");
+    SendMessageW(g_hStatusbar, SB_SETTEXT, 2, (LPARAM)LoadStr(IDS_PORT_CONFIG));
 }
 
 /* Port selection dialog procedure */
@@ -120,13 +126,13 @@ static INT_PTR CALLBACK PortSelectDlgProc(HWND hDlg, UINT msg, WPARAM wParam, LP
                 HWND hCombo = GetDlgItem(hDlg, IDC_PORT_COMBO);
                 int sel = (int)SendMessageW(hCombo, CB_GETCURSEL, 0, 0);
                 if (sel < 0) {
-                    MessageBoxW(hDlg, L"Please select a port", L"Warning", MB_OK | MB_ICONWARNING);
+                    MessageBoxW(hDlg, LoadStr(IDS_MSG_SELECT_PORT), LoadStr(IDS_MSG_WARNING), MB_OK | MB_ICONWARNING);
                     return TRUE;
                 }
                 /* Get port index from item data */
                 int portIdx = (int)SendMessageW(hCombo, CB_GETITEMDATA, sel, 0);
                 if (!Serial_GetPortName(portIdx, g_szSelectedPort, 32)) {
-                    MessageBoxW(hDlg, L"Invalid port selection", L"Error", MB_OK | MB_ICONERROR);
+                    MessageBoxW(hDlg, LoadStr(IDS_MSG_INVALID_PORT), LoadStr(IDS_MSG_ERROR), MB_OK | MB_ICONERROR);
                     return TRUE;
                 }
                 EndDialog(hDlg, IDOK);
@@ -203,7 +209,7 @@ void GUI_AppendLog(HWND hMainWnd, const BYTE *data, DWORD len, int dir)
     /* Calculate max line size for HEX data */
     DWORD numLines = (len + 15) / 16;
     DWORD maxLineSize = (tsLen + dirLen + 50) * (numLines + 1) + (len * 4) + 64;
-    WCHAR *hexLine = (WCHAR *)malloc(maxLineSize * sizeof(WCHAR));
+    WCHAR *hexLine = (WCHAR *)HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, maxLineSize * sizeof(WCHAR));
     if (!hexLine)
         return;
 
@@ -238,7 +244,7 @@ void GUI_AppendLog(HWND hMainWnd, const BYTE *data, DWORD len, int dir)
     SendMessageW(g_hEdit, EM_SETSEL, textLen, textLen);
     SendMessageW(g_hEdit, EM_SCROLLCARET, 0, 0);
 
-    free(hexLine);
+    HeapFree(GetProcessHeap(), 0, hexLine);
 }
 
 /* Handle Connect command */
@@ -261,9 +267,12 @@ void GUI_OnConnect(HWND hMainWnd)
 
     if (!Serial_Open(&g_serial, g_szPort, hMainWnd)) {
         TRACE_LOG(TAG, "ERROR: Serial_Open failed");
-        MessageBoxW(hMainWnd, L"Failed to open serial port", L"Error", MB_OK | MB_ICONERROR);
+        MessageBoxW(hMainWnd, LoadStr(IDS_MSG_PORT_ERROR), LoadStr(IDS_MSG_ERROR), MB_OK | MB_ICONERROR);
         return;
     }
+
+    /* Register protocol callback */
+    Serial_SetReceiveCallback(&g_serial, (SERIAL_RX_CB)Protocol_ProcessData);
 
     TRACE_LOG(TAG, "Serial_Open succeeded");
 
@@ -293,6 +302,17 @@ void GUI_OnDisconnect(HWND hMainWnd)
     UpdateStatusBar();
 }
 
+/* Handle Serial > Ping command - send random data */
+void GUI_OnPing(HWND hMainWnd)
+{
+    if (!Serial_IsOpen(&g_serial)) {
+        MessageBoxW(hMainWnd, LoadStr(IDS_MSG_NOT_CONN), LoadStr(IDS_MSG_CONN_TITLE), MB_OK | MB_ICONWARNING);
+        return;
+    }
+
+    Protocol_SendPing(&g_serial, hMainWnd);
+}
+
 /* Handle Log > Clear command */
 void GUI_OnLogClear(HWND hMainWnd)
 {
@@ -319,7 +339,9 @@ static void InitDefaultFont(void)
     /* Try to load from config first */
     if (!Config_GetFont(&g_logFont)) {
         /* Use default if not in config */
-        g_logFont.lfHeight = -MulDiv(DEFAULT_FONT_SIZE, GetDeviceCaps(GetDC(NULL), LOGPIXELSY), 72);
+        HDC hdc = GetDC(NULL);
+        g_logFont.lfHeight = -MulDiv(DEFAULT_FONT_SIZE, GetDeviceCaps(hdc, LOGPIXELSY), 72);
+        ReleaseDC(NULL, hdc);
         g_logFont.lfWeight = FW_NORMAL;
         g_logFont.lfCharSet = DEFAULT_CHARSET;
         g_logFont.lfOutPrecision = OUT_TT_PRECIS;
@@ -328,33 +350,6 @@ static void InitDefaultFont(void)
         g_logFont.lfPitchAndFamily = FIXED_PITCH | FF_MODERN;
         lstrcpyW(g_logFont.lfFaceName, DEFAULT_FONT_NAME);
     }
-}
-
-/* Font enumeration callback - only allow fixed-pitch fonts */
-static int CALLBACK FontEnumProc(const LOGFONTW *plf, const TEXTMETRICW *ptm, DWORD dwType, LPARAM lParam)
-{
-    (void)ptm;
-    (void)lParam;
-
-    /* Only include fixed-pitch (monospace) fonts */
-    if (dwType != TRUETYPE_FONTTYPE)
-        return 1;
-    if (plf->lfPitchAndFamily & FIXED_PITCH) {
-        HWND hCombo = (HWND)lParam;
-        SendMessageW(hCombo, CB_ADDSTRING, 0, (LPARAM)plf->lfFaceName);
-    }
-    return 1;
-}
-
-/* Font dialog callback to filter fonts */
-static UINT CALLBACK FontDlgHook(HWND hDlg, UINT msg, WPARAM wParam, LPARAM lParam)
-{
-    (void)lParam;
-    if (msg == WM_INITDIALOG) {
-        /* Set dialog title */
-        SetWindowTextW(hDlg, L"Select Font (Monospace Only)");
-    }
-    return 0;
 }
 
 /* Handle Log > Font command - show font selection dialog */
@@ -390,7 +385,7 @@ void GUI_OnLogSaveAs(HWND hMainWnd)
 
     ofn.lStructSize = sizeof(ofn);
     ofn.hwndOwner = hMainWnd;
-    ofn.lpstrFilter = L"Log Files (*.log)\0*.log\0All Files (*.*)\0*.*\0";
+    ofn.lpstrFilter = LoadStr(IDS_LOG_SAVE_FILTER);
     ofn.lpstrFile = szFile;
     ofn.nMaxFile = MAX_PATH;
     ofn.Flags = OFN_OVERWRITEPROMPT | OFN_PATHMUSTEXIST;
@@ -402,29 +397,29 @@ void GUI_OnLogSaveAs(HWND hMainWnd)
     HANDLE hFile = CreateFileW(szFile, GENERIC_WRITE, 0, NULL,
                                CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
     if (hFile == INVALID_HANDLE_VALUE) {
-        MessageBoxW(hMainWnd, L"Failed to create file", L"Error", MB_OK | MB_ICONERROR);
+        MessageBoxW(hMainWnd, LoadStr(IDS_MSG_SAVE_ERROR), LoadStr(IDS_MSG_ERROR), MB_OK | MB_ICONERROR);
         return;
     }
 
     int textLen = GetWindowTextLengthW(g_hEdit);
     if (textLen > 0) {
-        WCHAR *buf = (WCHAR *)malloc((textLen + 1) * sizeof(WCHAR));
+        WCHAR *buf = (WCHAR *)HeapAlloc(GetProcessHeap(), 0, (textLen + 1) * sizeof(WCHAR));
         if (buf) {
             GetWindowTextW(g_hEdit, buf, textLen + 1);
 
             /* Convert to UTF-8 (no BOM) */
             int utf8Len = WideCharToMultiByte(CP_UTF8, 0, buf, textLen + 1, NULL, 0, NULL, NULL);
             if (utf8Len > 0) {
-                char *utf8Buf = (char *)malloc(utf8Len);
+                char *utf8Buf = (char *)HeapAlloc(GetProcessHeap(), 0, utf8Len);
                 if (utf8Buf) {
                     WideCharToMultiByte(CP_UTF8, 0, buf, textLen + 1, utf8Buf, utf8Len, NULL, NULL);
                     DWORD written;
                     /* Exclude null terminator from output */
                     WriteFile(hFile, utf8Buf, utf8Len - 1, &written, NULL);
-                    free(utf8Buf);
+                    HeapFree(GetProcessHeap(), 0, utf8Buf);
                 }
             }
-            free(buf);
+            HeapFree(GetProcessHeap(), 0, buf);
         }
     }
 
@@ -436,8 +431,8 @@ void GUI_OnExit(HWND hWnd)
 {
     if (Serial_IsOpen(&g_serial)) {
         int ret = MessageBoxW(hWnd,
-                              L"Serial port is connected. Are you sure you want to exit?",
-                              L"Confirm Exit",
+                              LoadStr(IDS_MSG_CONFIRM_EXIT),
+                              LoadStr(IDS_MSG_CONFIRM_CAP),
                               MB_YESNO | MB_ICONQUESTION);
         if (ret != IDYES)
             return;
@@ -476,14 +471,14 @@ static LRESULT CALLBACK MainWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM l
             SendMessageW(g_hToolbar, TB_BUTTONSTRUCTSIZE, sizeof(TBBUTTON), 0);
             SendMessageW(g_hToolbar, TB_SETBITMAPSIZE, 0, MAKELPARAM(16, 16));
 
-            /* Load merged toolbar bitmap (4 icons: Connect, Disconnect, Clear, Save) */
+            /* Load merged toolbar bitmap (5 icons: Connect, Disconnect, Clear, Save, Ping) */
             TBADDBITMAP tbab = {0};
             tbab.hInst = hInst;
             tbab.nID = IDB_TOOLBAR;
-            int iBase = (int)SendMessageW(g_hToolbar, TB_ADDBITMAP, 4, (LPARAM)&tbab);
+            int iBase = (int)SendMessageW(g_hToolbar, TB_ADDBITMAP, 5, (LPARAM)&tbab);
 
-            /* Toolbar buttons: Connect, Disconnect, separator, Clear, Save */
-            TBBUTTON buttons[5] = {0};
+            /* Toolbar buttons: Connect, Disconnect, separator, Ping, separator, Clear, Save */
+            TBBUTTON buttons[7] = {0};
 
             buttons[0].iBitmap = iBase + 0;  /* Connect icon */
             buttons[0].idCommand = IDM_CONNECT;
@@ -498,24 +493,36 @@ static LRESULT CALLBACK MainWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM l
             buttons[1].iString = -1;
 
             buttons[2].iBitmap = 0;
-            buttons[2].idCommand = 0;
+            buttons[2].idCommand = -1;
             buttons[2].fsState = 0;
             buttons[2].fsStyle = BTNS_SEP;
             buttons[2].iString = -1;
 
-            buttons[3].iBitmap = iBase + 2;  /* Clear icon */
-            buttons[3].idCommand = IDM_LOG_CLEAR;
-            buttons[3].fsState = TBSTATE_ENABLED;
+            buttons[3].iBitmap = iBase + 4;  /* Ping icon */
+            buttons[3].idCommand = IDM_PING;
+            buttons[3].fsState = 0;  /* Disabled initially */
             buttons[3].fsStyle = BTNS_BUTTON;
             buttons[3].iString = -1;
 
-            buttons[4].iBitmap = iBase + 3;  /* Save icon */
-            buttons[4].idCommand = IDM_LOG_SAVEAS;
-            buttons[4].fsState = TBSTATE_ENABLED;
-            buttons[4].fsStyle = BTNS_BUTTON;
+            buttons[4].iBitmap = 0;
+            buttons[4].idCommand = -1;
+            buttons[4].fsState = 0;
+            buttons[4].fsStyle = BTNS_SEP;
             buttons[4].iString = -1;
 
-            SendMessageW(g_hToolbar, TB_ADDBUTTONS, 5, (LPARAM)buttons);
+            buttons[5].iBitmap = iBase + 2;  /* Clear icon */
+            buttons[5].idCommand = IDM_LOG_CLEAR;
+            buttons[5].fsState = TBSTATE_ENABLED;
+            buttons[5].fsStyle = BTNS_BUTTON;
+            buttons[5].iString = -1;
+
+            buttons[6].iBitmap = iBase + 3;  /* Save icon */
+            buttons[6].idCommand = IDM_LOG_SAVEAS;
+            buttons[6].fsState = TBSTATE_ENABLED;
+            buttons[6].fsStyle = BTNS_BUTTON;
+            buttons[6].iString = -1;
+
+            SendMessageW(g_hToolbar, TB_ADDBUTTONS, 7, (LPARAM)buttons);
 
             /* Create status bar */
             g_hStatusbar = CreateWindowExW(0, STATUSCLASSNAMEW, NULL,
@@ -536,6 +543,13 @@ static LRESULT CALLBACK MainWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM l
             /* Initialize and apply default font */
             InitDefaultFont();
             ApplyFontToEdit(g_hEdit, &g_logFont);
+
+            /* Register for device change notifications */
+            DEV_BROADCAST_DEVICEINTERFACE dbi = {0};
+            dbi.dbcc_size = sizeof(DEV_BROADCAST_DEVICEINTERFACE);
+            dbi.dbcc_devicetype = DBT_DEVTYP_DEVICEINTERFACE;
+            dbi.dbcc_classguid = GUID_DEVCLASS_PORTS;
+            RegisterDeviceNotificationW(hWnd, &dbi, DEVICE_NOTIFY_WINDOW_HANDLE);
 
             UpdateTitle(hWnd);
             UpdateMenuState(hWnd);
@@ -576,6 +590,10 @@ static LRESULT CALLBACK MainWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM l
             GUI_OnDisconnect(hWnd);
             SetFocus(g_hEdit);
             return 0;
+        case IDM_PING:
+            GUI_OnPing(hWnd);
+            SetFocus(g_hEdit);
+            return 0;
         case IDM_LOG_CLEAR:
             GUI_OnLogClear(hWnd);
             return 0;
@@ -600,21 +618,25 @@ static LRESULT CALLBACK MainWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM l
     case WM_NOTIFY:
         /* Handle toolbar tooltip requests */
         if (((NMHDR *)lParam)->hwndFrom == g_hToolbar) {
-            LPNMTTDISPINFOW ttt = (LPNMTTDISPINFOW)lParam;
-            if (ttt->hdr.code == TTN_GETDISPINFOW) {
+            if (((NMHDR *)lParam)->code == TTN_GETDISPINFOW) {
+                NMTTDISPINFOW *ttt = (NMTTDISPINFOW *)lParam;
+                ttt->hinst = GetModuleHandleW(NULL);
                 switch (ttt->hdr.idFrom) {
                 case IDM_CONNECT:
-                    lstrcpyW(ttt->szText, L"Connect");
-                    break;
+                    ttt->lpszText = MAKEINTRESOURCEW(IDS_TIP_CONNECT);
+                    return 0;
                 case IDM_DISCONNECT:
-                    lstrcpyW(ttt->szText, L"Disconnect");
-                    break;
+                    ttt->lpszText = MAKEINTRESOURCEW(IDS_TIP_DISCONNECT);
+                    return 0;
+                case IDM_PING:
+                    ttt->lpszText = MAKEINTRESOURCEW(IDS_TIP_PING);
+                    return 0;
                 case IDM_LOG_CLEAR:
-                    lstrcpyW(ttt->szText, L"Clear Log");
-                    break;
+                    ttt->lpszText = MAKEINTRESOURCEW(IDS_TIP_CLEAR);
+                    return 0;
                 case IDM_LOG_SAVEAS:
-                    lstrcpyW(ttt->szText, L"Save Log");
-                    break;
+                    ttt->lpszText = MAKEINTRESOURCEW(IDS_TIP_SAVEAS);
+                    return 0;
                 }
             }
         }
@@ -648,12 +670,38 @@ static LRESULT CALLBACK MainWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM l
         }
         return 0;
 
+    case WM_USER + 3:
+        /* Connection lost notification from listener thread */
+        TRACE_LOG(TAG, "Connection lost, error code: %lu", (DWORD)wParam);
+        Serial_Close(&g_serial);
+        UpdateTitle(hWnd);
+        UpdateMenuState(hWnd);
+        UpdateStatusBar();
+        MessageBoxW(hWnd, LoadStr(IDS_MSG_CONN_LOST), LoadStr(IDS_MSG_ERROR), MB_OK | MB_ICONERROR);
+        return 0;
+
+    case WM_DEVICECHANGE:
+        /* Handle device removal */
+        if (wParam == DBT_DEVICEREMOVECOMPLETE && Serial_IsOpen(&g_serial)) {
+            PDEV_BROADCAST_HDR pHdr = (PDEV_BROADCAST_HDR)lParam;
+            if (pHdr && pHdr->dbch_devicetype == DBT_DEVTYP_DEVICEINTERFACE) {
+                TRACE_LOG(TAG, "Device removed, disconnecting");
+                Serial_Close(&g_serial);
+                UpdateTitle(hWnd);
+                UpdateMenuState(hWnd);
+                UpdateStatusBar();
+                MessageBoxW(hWnd, LoadStr(IDS_MSG_DEV_REMOVED),
+                            LoadStr(IDS_MSG_DEV_TITLE), MB_OK | MB_ICONWARNING);
+            }
+        }
+        break;
+
     case WM_CLOSE:
         /* Handle close button (X) with confirmation if connected */
         if (Serial_IsOpen(&g_serial)) {
             int ret = MessageBoxW(hWnd,
-                                  L"Serial port is connected. Are you sure you want to exit?",
-                                  L"Confirm Exit",
+                                  LoadStr(IDS_MSG_CONFIRM_EXIT),
+                                  LoadStr(IDS_MSG_CONFIRM_CAP),
                                   MB_YESNO | MB_ICONQUESTION);
             if (ret != IDYES)
                 return 0;
@@ -675,6 +723,9 @@ BOOL GUI_Init(HINSTANCE hInstance)
 {
     INITCOMMONCONTROLSEX icex = { .dwSize = sizeof(icex), .dwICC = ICC_BAR_CLASSES };
     InitCommonControlsEx(&icex);
+
+    /* Initialize protocol module */
+    Protocol_Init();
 
     WNDCLASSEXW wc = {
         .cbSize = sizeof(WNDCLASSEXW),
