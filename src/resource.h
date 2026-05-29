@@ -37,39 +37,12 @@
 #define IDS_DISCONNECTED    10002
 #define IDS_TITLE_FORMAT    10004  /* "SerialEcho - %s" */
 
-/* Menu strings */
-#define IDS_MENU_FILE       10010
-#define IDS_MENU_EXIT       10011
-#define IDS_MENU_SERIAL     10012
-#define IDS_MENU_CONNECT    10013
-#define IDS_MENU_DISCONNECT 10014
-#define IDS_MENU_PING       10015
-#define IDS_MENU_LOG        10016
-#define IDS_MENU_CLEAR      10017
-#define IDS_MENU_SAVEAS     10018
-#define IDS_MENU_FONT       10019
-#define IDS_MENU_HELP       10020
-#define IDS_MENU_ABOUT      10021
-
 /* Tooltip strings */
 #define IDS_TIP_CONNECT     10030
 #define IDS_TIP_DISCONNECT  10031
 #define IDS_TIP_PING        10032
 #define IDS_TIP_CLEAR       10033
 #define IDS_TIP_SAVEAS      10034
-
-/* Dialog strings */
-#define IDS_DLG_SELECT_PORT 10040
-#define IDS_DLG_PORT        10041
-#define IDS_DLG_BAUD_RATE   10042
-#define IDS_DLG_DATA_PARITY 10043
-#define IDS_DLG_OK          10044
-#define IDS_DLG_CANCEL      10045
-#define IDS_DLG_ABOUT_TITLE 10046
-#define IDS_DLG_ABOUT_NAME  10047
-#define IDS_DLG_ABOUT_DESC  10048
-#define IDS_DLG_ABOUT_COM0  10049
-#define IDS_DLG_ABOUT_COPY  10050
 
 /* Message strings */
 #define IDS_MSG_NOT_CONN    10060

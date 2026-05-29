@@ -21,6 +21,11 @@ static const char *TAG = "SER";
 #define READ_BUFFER_SIZE 4096
 #define MAX_PORTS 64
 
+/* Custom window messages for UI notification */
+#define WM_SERIAL_RX    (WM_USER + 1)
+#define WM_SERIAL_TX    (WM_USER + 2)
+#define WM_SERIAL_ERROR (WM_USER + 3)
+
 /* Port info structure for friendly name display */
 typedef struct {
     WCHAR portName[32];
@@ -154,7 +159,7 @@ static DWORD WINAPI Listener_Proc(LPVOID param)
 
         if (!WaitCommEvent(ctx->hPort, &dwEvtMask, &ov)) {
             if (GetLastError() == ERROR_IO_PENDING) {
-                DWORD waitResult = WaitForSingleObject(ov.hEvent, 100);
+                DWORD waitResult = WaitForSingleObject(ov.hEvent, 500);
                 if (waitResult == WAIT_TIMEOUT)
                     continue;
                 if (waitResult != WAIT_OBJECT_0) {
@@ -215,7 +220,7 @@ static DWORD WINAPI Listener_Proc(LPVOID param)
                         void *copy = HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, allocSize);
                         if (copy) {
                             CopyMemory(copy, buffer, bytesRead);
-                            if (!PostMessage(ctx->hNotify, WM_USER + 1, (WPARAM)bytesRead, (LPARAM)copy)) {
+                            if (!PostMessage(ctx->hNotify, WM_SERIAL_RX, (WPARAM)bytesRead, (LPARAM)copy)) {
                                 TRACE_LOG(TAG, "ERROR: PostMessage RX failed: %lu", GetLastError());
                                 HeapFree(GetProcessHeap(), 0, copy);
                             }
@@ -259,7 +264,7 @@ static DWORD WINAPI Listener_Proc(LPVOID param)
     /* Notify UI if this was an unexpected exit */
     if (errorExit && ctx->hNotify && IsWindow(ctx->hNotify)) {
         DWORD lastErr = GetLastError();
-        PostMessage(ctx->hNotify, WM_USER + 3, (WPARAM)lastErr, 0);
+        PostMessage(ctx->hNotify, WM_SERIAL_ERROR, (WPARAM)lastErr, 0);
     }
 
     return 0;
@@ -387,7 +392,7 @@ void Serial_Close(SERIAL_CTX *ctx)
 
         /* Wait for thread to exit */
         if (ctx->hThread) {
-            WaitForSingleObject(ctx->hThread, 2000);
+            WaitForSingleObject(ctx->hThread, 5000);
             CloseHandle(ctx->hThread);
             ctx->hThread = NULL;
         }
@@ -470,7 +475,7 @@ DWORD Serial_WriteData(SERIAL_CTX *ctx, const BYTE *data, DWORD len, HWND hNotif
             void *copy = HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, bytesWritten + 1);
             if (copy) {
                 CopyMemory(copy, data, bytesWritten);
-                if (!PostMessage(hNotify, WM_USER + 2, (WPARAM)bytesWritten, (LPARAM)copy)) {
+                if (!PostMessage(hNotify, WM_SERIAL_TX, (WPARAM)bytesWritten, (LPARAM)copy)) {
                     HeapFree(GetProcessHeap(), 0, copy);
                 }
             }

@@ -27,6 +27,19 @@ static const char *TAG = "GUI";
 #define DEFAULT_FONT_NAME L"Consolas"
 #define DEFAULT_FONT_SIZE 10
 
+/* Status bar part widths */
+#define STATUS_PART1_WIDTH  0    /* Reserved, stretches */
+#define STATUS_PART2_WIDTH  140  /* Port name */
+#define STATUS_PART3_WIDTH  140  /* Port config */
+
+/* Message size limit */
+#define MAX_MSG_SIZE        65536
+
+/* Custom window messages from serial thread */
+#define WM_SERIAL_RX        (WM_USER + 1)  /* RX data received */
+#define WM_SERIAL_TX        (WM_USER + 2)  /* TX data sent */
+#define WM_SERIAL_ERROR     (WM_USER + 3)  /* Connection error */
+
 /* Global state */
 static SERIAL_CTX g_serial = { .hPort = NULL, .hThread = NULL, .hStartEvent = NULL, .hIOEvent = NULL, .hNotify = NULL, .bRunning = FALSE };
 static HWND g_hToolbar = NULL;
@@ -71,8 +84,8 @@ static void UpdateStatusBar(void)
     int parts[3];
     RECT rc;
     GetClientRect(GetParent(g_hStatusbar), &rc);
-    parts[0] = rc.right - 280;
-    parts[1] = rc.right - 140;
+    parts[0] = rc.right - STATUS_PART2_WIDTH - STATUS_PART3_WIDTH;
+    parts[1] = rc.right - STATUS_PART3_WIDTH;
     parts[2] = -1;
     SendMessageW(g_hStatusbar, SB_SETPARTS, 3, (LPARAM)parts);
 
@@ -640,12 +653,12 @@ static LRESULT CALLBACK MainWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM l
         }
         break;
 
-    case WM_USER + 1:
+    case WM_SERIAL_RX:
         /* RX Data received from serial port */
         {
             DWORD len = (DWORD)wParam;
             BYTE *data = (BYTE *)lParam;
-            if (data != NULL && len > 0 && len < 65536) {
+            if (data != NULL && len > 0 && len < MAX_MSG_SIZE) {
                 GUI_AppendLog(hWnd, data, len, DIR_RX);
             }
             if (data != NULL) {
@@ -654,12 +667,12 @@ static LRESULT CALLBACK MainWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM l
         }
         return 0;
 
-    case WM_USER + 2:
+    case WM_SERIAL_TX:
         /* TX Data sent to serial port */
         {
             DWORD len = (DWORD)wParam;
             BYTE *data = (BYTE *)lParam;
-            if (data != NULL && len > 0 && len < 65536) {
+            if (data != NULL && len > 0 && len < MAX_MSG_SIZE) {
                 GUI_AppendLog(hWnd, data, len, DIR_TX);
             }
             if (data != NULL) {
@@ -668,7 +681,7 @@ static LRESULT CALLBACK MainWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM l
         }
         return 0;
 
-    case WM_USER + 3:
+    case WM_SERIAL_ERROR:
         /* Connection lost notification from listener thread */
         TRACE_LOG(TAG, "Connection lost, error code: %lu", (DWORD)wParam);
         Serial_Close(&g_serial);
@@ -742,16 +755,11 @@ BOOL GUI_Init(HINSTANCE hInstance)
 /* Create and show the main application window */
 HWND GUI_CreateMainWindow(HINSTANCE hInstance)
 {
-    int cx = GetSystemMetrics(SM_CXSCREEN);
-    int cy = GetSystemMetrics(SM_CYSCREEN);
-    int width = 800;
-    int height = 600;
-
     HMENU hMenu = LoadMenuW(hInstance, MAKEINTRESOURCEW(IDR_MAIN_MENU));
 
-    HWND hWnd = CreateWindowExW(0, L"SerialEchoClass", L"SerialEcho",
+    HWND hWnd = CreateWindowExW(0, L"SerialEchoClass", LoadStr(IDS_APP_NAME),
         WS_OVERLAPPEDWINDOW,
-        (cx - width) / 2, (cy - height) / 2, width, height,
+        CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT,
         NULL, hMenu, hInstance, NULL);
 
     if (hWnd) {
