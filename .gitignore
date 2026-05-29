@@ -27,6 +27,11 @@ cmake-build-*/
 *.ncb
 *.sdf
 
+# Pelles C
+*.ppx
+*.tag
+output/
+
 # Temporary files
 *.tmp
 *.bak
@@ -42,4 +47,4 @@ Thumbs.db
 Desktop.ini
 
 # Application config (optional, uncomment to track)
-# SerialEcho.ini
+SerialEcho.ini

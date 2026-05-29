@@ -8,8 +8,9 @@
  */
 
 #include "serial.h"
+#include "main.h"
 #include "resource.h"
-#include "trace.h"
+#include "utils/trace.h"
 #include <setupapi.h>
 #include <devguid.h>
 #include <stdio.h>
@@ -20,11 +21,6 @@ static const char *TAG = "SER";
 
 #define READ_BUFFER_SIZE 4096
 #define MAX_PORTS 64
-
-/* Custom window messages for UI notification */
-#define WM_SERIAL_RX    (WM_USER + 1)
-#define WM_SERIAL_TX    (WM_USER + 2)
-#define WM_SERIAL_ERROR (WM_USER + 3)
 
 /* Port info structure for friendly name display */
 typedef struct {
@@ -95,24 +91,6 @@ BOOL Serial_EnumPorts(HWND hCombo)
         SendMessageW(hCombo, CB_SETCURSEL, 0, 0);
 
     return found;
-}
-
-/*
- * GetPortNameFromCombo - Get port name from combo box selection
- *
- * Returns port name (e.g. "COM10") from the selected combo item.
- */
-static BOOL GetPortNameFromCombo(HWND hCombo, int sel, WCHAR *portName, int maxLen)
-{
-    if (sel < 0)
-        return FALSE;
-
-    int portIdx = (int)SendMessageW(hCombo, CB_GETITEMDATA, sel, 0);
-    if (portIdx < 0 || portIdx >= g_portCount)
-        return FALSE;
-
-    lstrcpynW(portName, g_portInfo[portIdx].portName, maxLen);
-    return TRUE;
 }
 
 /*
@@ -490,4 +468,29 @@ void Serial_SetReceiveCallback(SERIAL_CTX *ctx, SERIAL_RX_CB cb)
 {
     if (ctx)
         ctx->onReceive = cb;
+}
+
+/* Post a custom log message to the UI thread */
+void Serial_PostLog(HWND hNotify, const WCHAR *tag, const WCHAR *text)
+{
+    if (!hNotify || !IsWindow(hNotify) || !tag || !text)
+        return;
+
+    /* Allocate copies for the message */
+    size_t tagLen = (lstrlenW(tag) + 1) * sizeof(WCHAR);
+    size_t textLen = (lstrlenW(text) + 1) * sizeof(WCHAR);
+    WCHAR *tagCopy = (WCHAR *)HeapAlloc(GetProcessHeap(), 0, tagLen);
+    WCHAR *textCopy = (WCHAR *)HeapAlloc(GetProcessHeap(), 0, textLen);
+
+    if (tagCopy && textCopy) {
+        CopyMemory(tagCopy, tag, tagLen);
+        CopyMemory(textCopy, text, textLen);
+        if (!PostMessage(hNotify, WM_SERIAL_LOG, (WPARAM)tagCopy, (LPARAM)textCopy)) {
+            HeapFree(GetProcessHeap(), 0, tagCopy);
+            HeapFree(GetProcessHeap(), 0, textCopy);
+        }
+    } else {
+        if (tagCopy) HeapFree(GetProcessHeap(), 0, tagCopy);
+        if (textCopy) HeapFree(GetProcessHeap(), 0, textCopy);
+    }
 }

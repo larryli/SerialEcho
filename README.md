@@ -40,14 +40,15 @@ cmake --build .
 ```
 SerialEcho/
 ├── src/                    # 源代码
-│   ├── main.c              # 程序入口
-│   ├── gui.c / gui.h       # GUI 模块
+│   ├── main.c / main.h     # 程序入口和 GUI 实现
 │   ├── serial.c / serial.h # 串口通信模块
 │   ├── protocol.c / protocol.h # 协议处理模块
-│   ├── config.c / config.h # 配置持久化模块
-│   ├── trace.c / trace.h   # 调试日志模块
 │   ├── resource.h          # 资源 ID
-│   └── resource.rc         # 资源文件（菜单、对话框、字符串）
+│   ├── resource.rc         # 资源文件（菜单、对话框、字符串）
+│   └── utils/              # 辅助模块
+│       ├── config.c / config.h   # 配置持久化
+│       ├── lang.c / lang.h       # 国际化辅助
+│       └── trace.c / trace.h     # 调试日志
 ├── res/                    # 资源文件（图标、位图、清单）
 ├── docs/                   # 文档
 │   ├── REQUIREMENTS.md     # 需求规格

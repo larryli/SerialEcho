@@ -18,7 +18,7 @@
  *        }
  *    }
  *
- * 2. Register your callback in GUI_OnConnect:
+ * 2. Register your callback in Main_OnConnect:
  *
  *    Serial_SetReceiveCallback(&g_serial, (SERIAL_RX_CB)MyProtocol_ProcessData);
  *
@@ -26,7 +26,7 @@
  */
 
 #include "protocol.h"
-#include "trace.h"
+#include "utils/trace.h"
 #include <stdlib.h>
 
 static const char *TAG = "PROTO";
@@ -68,7 +68,12 @@ void Protocol_SendPing(SERIAL_CTX *ctx, HWND hNotify)
     for (DWORD i = 0; i < size; i++)
         data[i] = (BYTE)(rand() % 256);
 
-    TRACE_LOG(TAG, "Ping: sending %lu bytes", size);
     Serial_WriteData(ctx, data, size, hNotify);
+
+    /* Log ping via message mechanism */
+    WCHAR logBuf[64];
+    wsprintfW(logBuf, L"Sent %lu random bytes", size);
+    Serial_PostLog(hNotify, L"PING", logBuf);
+
     HeapFree(GetProcessHeap(), 0, data);
 }

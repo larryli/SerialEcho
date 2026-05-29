@@ -5,6 +5,7 @@
 #ifdef ENABLE_TRACE
 
 #include "trace.h"
+#include <wchar.h>
 #include <stdio.h>
 #include <stdarg.h>
 

@@ -107,4 +107,16 @@ DWORD Serial_WriteData(SERIAL_CTX *ctx, const BYTE *data, DWORD len, HWND hNotif
  */
 void Serial_SetReceiveCallback(SERIAL_CTX *ctx, SERIAL_RX_CB cb);
 
+/*
+ * Serial_PostLog - Post a custom log message to the UI
+ *
+ * Thread-safe function for protocol layer to display log messages.
+ * Allocates copies of tag and text, caller does not need to keep them.
+ *
+ * @hNotify: Window handle (from SERIAL_CTX.hNotify)
+ * @tag: Tag text (e.g. "PING", "ERR")
+ * @text: Log message text
+ */
+void Serial_PostLog(HWND hNotify, const WCHAR *tag, const WCHAR *text);
+
 #endif /* SERIAL_H */

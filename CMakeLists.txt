@@ -4,9 +4,6 @@
 # Build (Release): mkdir build && cd build && cmake .. -G "NMake Makefiles" && cmake --build .
 # Build (Debug):   mkdir build && cd build && cmake .. -G "NMake Makefiles" -DCMAKE_BUILD_TYPE=Debug && cmake --build .
 # Build (Trace):   mkdir build && cd build && cmake .. -G "NMake Makefiles" -DENABLE_TRACE=ON && cmake --build .
-#
-# Note: Uses custom manifest (res1.xml) embedded via resource.rc
-# for Common Controls v6 and DPI awareness support.
 
 cmake_minimum_required(VERSION 3.20)
 project(SerialEcho C)
@@ -16,14 +13,16 @@ set(CMAKE_C_STANDARD 11)
 # Source files
 add_executable(SerialEcho WIN32
     src/main.c
-    src/gui.c
     src/serial.c
     src/protocol.c
-    src/config.c
-    src/lang.c
-    src/trace.c
+    src/utils/config.c
+    src/utils/lang.c
+    src/utils/trace.c
     src/resource.rc
 )
+
+# Include directories
+target_include_directories(SerialEcho PRIVATE src)
 
 # Disable automatic manifest generation (using custom manifest in resource.rc)
 set_target_properties(SerialEcho PROPERTIES

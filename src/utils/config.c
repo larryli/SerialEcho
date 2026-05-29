@@ -6,6 +6,7 @@
  */
 
 #include "config.h"
+#include <wchar.h>
 #include <stdio.h>
 
 static WCHAR g_iniPath[MAX_PATH] = {0};
