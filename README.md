@@ -139,4 +139,6 @@ TAG 说明：
 
 ## 许可证
 
-Copyright (c) 2026. All rights reserved.
+本项目采用 [MIT 许可证](LICENSE)。
+
+Copyright (c) 2026 larryli

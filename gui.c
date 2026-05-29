@@ -8,6 +8,7 @@
 #include "gui.h"
 #include "serial.h"
 #include "resource.h"
+#include "config.h"
 #include "trace.h"
 #include <richedit.h>
 #include <commdlg.h>
@@ -18,6 +19,10 @@
 
 static const char *TAG = "GUI";
 
+/* Default font settings */
+#define DEFAULT_FONT_NAME L"Consolas"
+#define DEFAULT_FONT_SIZE 10
+
 /* Global state */
 static SERIAL_CTX g_serial = { .hPort = NULL, .hThread = NULL, .hStartEvent = NULL, .hIOEvent = NULL, .hNotify = NULL, .bRunning = FALSE };
 static HWND g_hToolbar = NULL;
@@ -25,6 +30,7 @@ static HWND g_hStatusbar = NULL;
 static HWND g_hEdit = NULL;
 static WCHAR g_szPort[32] = {0};
 static WCHAR g_szSelectedPort[32] = {0};
+static LOGFONTW g_logFont = {0};  /* Current font */
 
 /* Update menu and toolbar button states based on connection status */
 static void UpdateMenuState(HWND hWnd)
@@ -86,6 +92,23 @@ static INT_PTR CALLBACK PortSelectDlgProc(HWND hDlg, UINT msg, WPARAM wParam, LP
                 EndDialog(hDlg, IDCANCEL);
                 return TRUE;
             }
+
+            /* Try to select last connected port */
+            WCHAR lastPort[32] = {0};
+            if (Config_GetLastPort(lastPort, 32)) {
+                int count = (int)SendMessageW(hCombo, CB_GETCOUNT, 0, 0);
+                for (int i = 0; i < count; i++) {
+                    int portIdx = (int)SendMessageW(hCombo, CB_GETITEMDATA, i, 0);
+                    WCHAR portName[32] = {0};
+                    if (Serial_GetPortName(portIdx, portName, 32)) {
+                        if (lstrcmpiW(portName, lastPort) == 0) {
+                            SendMessageW(hCombo, CB_SETCURSEL, i, 0);
+                            break;
+                        }
+                    }
+                }
+            }
+
             SetFocus(hCombo);
         }
         return FALSE;
@@ -130,7 +153,33 @@ static BOOL ShowPortSelectDialog(HWND hWnd)
     return FALSE;
 }
 
-/* Format and append data to log display */
+/* Color definitions for log display */
+#define COLOR_TIMESTAMP RGB(128, 128, 128)  /* Gray */
+#define COLOR_RX        RGB(0, 0, 200)      /* Blue */
+#define COLOR_TX        RGB(0, 128, 0)      /* Green */
+#define COLOR_DATA      RGB(0, 0, 0)        /* Black */
+#define COLOR_BG        RGB(240, 240, 240)  /* Light gray */
+
+/* Helper: Set text color for selection */
+static void SetEditColor(HWND hEdit, COLORREF color)
+{
+    CHARFORMAT2W cf = {0};
+    cf.cbSize = sizeof(CHARFORMAT2W);
+    cf.dwMask = CFM_COLOR;
+    cf.crTextColor = color;
+    SendMessageW(hEdit, EM_SETCHARFORMAT, SCF_SELECTION, (LPARAM)&cf);
+}
+
+/* Helper: Append colored text to RichEdit */
+static void AppendColoredText(HWND hEdit, const WCHAR *text, int len, COLORREF color)
+{
+    int textLen = GetWindowTextLengthW(hEdit);
+    SendMessageW(hEdit, EM_SETSEL, textLen, textLen);
+    SetEditColor(hEdit, color);
+    SendMessageW(hEdit, EM_REPLACESEL, FALSE, (LPARAM)text);
+}
+
+/* Format and append data to log display with colors */
 void GUI_AppendLog(HWND hMainWnd, const BYTE *data, DWORD len, int dir)
 {
     (void)hMainWnd;
@@ -140,64 +189,56 @@ void GUI_AppendLog(HWND hMainWnd, const BYTE *data, DWORD len, int dir)
     SYSTEMTIME st;
     GetLocalTime(&st);
 
-    /* Build prefix: "YYYY-MM-DD HH:MM:SS.mmm [RX] " */
-    WCHAR prefix[64];
-    int prefixLen = wsprintfW(prefix, L"%04d-%02d-%02d %02d:%02d:%02d.%03d [%s] ",
-                              st.wYear, st.wMonth, st.wDay,
-                              st.wHour, st.wMinute, st.wSecond, st.wMilliseconds,
-                              (dir == DIR_RX) ? L"RX" : L"TX");
+    /* Build timestamp: "YYYY-MM-DD HH:MM:SS.mmm " */
+    WCHAR timestamp[32];
+    int tsLen = wsprintfW(timestamp, L"%04d-%02d-%02d %02d:%02d:%02d.%03d ",
+                          st.wYear, st.wMonth, st.wDay,
+                          st.wHour, st.wMinute, st.wSecond, st.wMilliseconds);
 
-    /* Calculate max line size generously */
-    /* Each byte: "XX " (3 chars), extra space every 8 bytes, CRLF every 16 bytes */
+    /* Build direction: "[RX] " or "[TX] " */
+    WCHAR direction[8];
+    int dirLen = wsprintfW(direction, L"[%s] ", (dir == DIR_RX) ? L"RX" : L"TX");
+    COLORREF dirColor = (dir == DIR_RX) ? COLOR_RX : COLOR_TX;
+
+    /* Calculate max line size for HEX data */
     DWORD numLines = (len + 15) / 16;
-    DWORD maxLineSize = (prefixLen + 50) * (numLines + 1) + (len * 4) + 64;
-    WCHAR *line = (WCHAR *)malloc(maxLineSize * sizeof(WCHAR));
-    if (!line)
+    DWORD maxLineSize = (tsLen + dirLen + 50) * (numLines + 1) + (len * 4) + 64;
+    WCHAR *hexLine = (WCHAR *)malloc(maxLineSize * sizeof(WCHAR));
+    if (!hexLine)
         return;
 
     int pos = 0;
-    int maxPos = maxLineSize - 8; /* Reserve for final CRLF + null + safety margin */
-
-    /* Write prefix first */
-    if (prefixLen < maxPos) {
-        CopyMemory(line + pos, prefix, prefixLen * sizeof(WCHAR));
-        pos += prefixLen;
-    }
+    int prefixLen = tsLen + dirLen;
 
     /* Format HEX data with grouping and line wrapping */
-    for (DWORD i = 0; i < len && pos < maxPos; i++) {
+    for (DWORD i = 0; i < len; i++) {
         if (i > 0 && i % 16 == 0) {
-            /* New line every 16 bytes, align with prefix */
-            if (pos + 2 < maxPos) {
-                line[pos++] = L'\r';
-                line[pos++] = L'\n';
-            }
-            for (int j = 0; j < prefixLen && pos < maxPos; j++) {
-                line[pos++] = L' ';
-            }
+            /* New line, align with prefix */
+            hexLine[pos++] = L'\r';
+            hexLine[pos++] = L'\n';
+            for (int j = 0; j < prefixLen; j++)
+                hexLine[pos++] = L' ';
         } else if (i > 0 && i % 8 == 0) {
-            /* Extra space every 8 bytes for visual grouping */
-            if (pos < maxPos)
-                line[pos++] = L' ';
+            /* Extra space every 8 bytes */
+            hexLine[pos++] = L' ';
         }
-        if (pos + 4 < maxPos)
-            pos += wsprintfW(line + pos, L"%02X ", data[i]);
+        pos += wsprintfW(hexLine + pos, L"%02X ", data[i]);
     }
+    hexLine[pos++] = L'\r';
+    hexLine[pos++] = L'\n';
+    hexLine[pos] = L'\0';
 
-    /* Add final newline */
-    if (pos + 2 < maxLineSize) {
-        line[pos++] = L'\r';
-        line[pos++] = L'\n';
-    }
-    line[pos] = L'\0';
+    /* Append with colors: timestamp (gray) + direction (color) + data (black) */
+    AppendColoredText(g_hEdit, timestamp, tsLen, COLOR_TIMESTAMP);
+    AppendColoredText(g_hEdit, direction, dirLen, dirColor);
+    AppendColoredText(g_hEdit, hexLine, pos, COLOR_DATA);
 
-    /* Append to RichEdit control */
+    /* Scroll to end */
     int textLen = GetWindowTextLengthW(g_hEdit);
     SendMessageW(g_hEdit, EM_SETSEL, textLen, textLen);
-    SendMessageW(g_hEdit, EM_REPLACESEL, FALSE, (LPARAM)line);
     SendMessageW(g_hEdit, EM_SCROLLCARET, 0, 0);
 
-    free(line);
+    free(hexLine);
 }
 
 /* Handle Connect command */
@@ -225,6 +266,9 @@ void GUI_OnConnect(HWND hMainWnd)
     }
 
     TRACE_LOG(TAG, "Serial_Open succeeded");
+
+    /* Save last connected port */
+    Config_SetLastPort(g_szPort);
 
     /* Clear log on new connection */
     SetWindowTextW(g_hEdit, L"");
@@ -255,6 +299,81 @@ void GUI_OnLogClear(HWND hMainWnd)
     (void)hMainWnd;
     if (g_hEdit)
         SetWindowTextW(g_hEdit, L"");
+}
+
+/* Apply font to RichEdit control */
+static void ApplyFontToEdit(HWND hEdit, LOGFONTW *plf)
+{
+    CHARFORMAT2W cf = {0};
+    cf.cbSize = sizeof(CHARFORMAT2W);
+    cf.dwMask = CFM_FACE | CFM_SIZE | CFM_WEIGHT;
+    cf.yHeight = plf->lfHeight * 15;  /* Convert to twips (1/1440 inch) */
+    cf.wWeight = (WORD)plf->lfWeight;
+    lstrcpyW(cf.szFaceName, plf->lfFaceName);
+    SendMessageW(hEdit, EM_SETCHARFORMAT, SCF_ALL, (LPARAM)&cf);
+}
+
+/* Initialize default font (try to load from config) */
+static void InitDefaultFont(void)
+{
+    /* Try to load from config first */
+    if (!Config_GetFont(&g_logFont)) {
+        /* Use default if not in config */
+        g_logFont.lfHeight = -MulDiv(DEFAULT_FONT_SIZE, GetDeviceCaps(GetDC(NULL), LOGPIXELSY), 72);
+        g_logFont.lfWeight = FW_NORMAL;
+        g_logFont.lfCharSet = DEFAULT_CHARSET;
+        g_logFont.lfOutPrecision = OUT_TT_PRECIS;
+        g_logFont.lfClipPrecision = CLIP_DEFAULT_PRECIS;
+        g_logFont.lfQuality = CLEARTYPE_QUALITY;
+        g_logFont.lfPitchAndFamily = FIXED_PITCH | FF_MODERN;
+        lstrcpyW(g_logFont.lfFaceName, DEFAULT_FONT_NAME);
+    }
+}
+
+/* Font enumeration callback - only allow fixed-pitch fonts */
+static int CALLBACK FontEnumProc(const LOGFONTW *plf, const TEXTMETRICW *ptm, DWORD dwType, LPARAM lParam)
+{
+    (void)ptm;
+    (void)lParam;
+
+    /* Only include fixed-pitch (monospace) fonts */
+    if (dwType != TRUETYPE_FONTTYPE)
+        return 1;
+    if (plf->lfPitchAndFamily & FIXED_PITCH) {
+        HWND hCombo = (HWND)lParam;
+        SendMessageW(hCombo, CB_ADDSTRING, 0, (LPARAM)plf->lfFaceName);
+    }
+    return 1;
+}
+
+/* Font dialog callback to filter fonts */
+static UINT CALLBACK FontDlgHook(HWND hDlg, UINT msg, WPARAM wParam, LPARAM lParam)
+{
+    (void)lParam;
+    if (msg == WM_INITDIALOG) {
+        /* Set dialog title */
+        SetWindowTextW(hDlg, L"Select Font (Monospace Only)");
+    }
+    return 0;
+}
+
+/* Handle Log > Font command - show font selection dialog */
+void GUI_OnLogFont(HWND hMainWnd)
+{
+    CHOOSEFONTW cf = {0};
+    LOGFONTW lf = g_logFont;
+
+    cf.lStructSize = sizeof(cf);
+    cf.hwndOwner = hMainWnd;
+    cf.lpLogFont = &lf;
+    cf.Flags = CF_SCREENFONTS | CF_FIXEDPITCHONLY | CF_INITTOLOGFONTSTRUCT | CF_NOVERTFONTS;
+    cf.nFontType = SCREEN_FONTTYPE;
+
+    if (ChooseFontW(&cf)) {
+        g_logFont = lf;
+        ApplyFontToEdit(g_hEdit, &g_logFont);
+        Config_SetFont(&g_logFont);  /* Save to config */
+    }
 }
 
 /* Handle Log > Save As command - save log to UTF-8 file */
@@ -410,18 +529,13 @@ static LRESULT CALLBACK MainWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM l
                 WS_CHILD | WS_VISIBLE | WS_VSCROLL | ES_LEFT | ES_MULTILINE | ES_AUTOVSCROLL | ES_READONLY,
                 0, 0, 0, 0, hWnd, (HMENU)IDC_MAIN_EDIT, hInst, NULL);
 
-            /* Configure RichEdit: unlimited text, light gray background, black Consolas font */
+            /* Configure RichEdit: unlimited text, light gray background */
             SendMessageW(g_hEdit, EM_SETLIMITTEXT, 0, 0);
-            SendMessageW(g_hEdit, EM_SETBKGNDCOLOR, 0, RGB(240, 240, 240));
+            SendMessageW(g_hEdit, EM_SETBKGNDCOLOR, 0, COLOR_BG);
 
-            CHARFORMAT2W cf = {0};
-            cf.cbSize = sizeof(CHARFORMAT2W);
-            cf.dwMask = CFM_COLOR | CFM_FACE | CFM_SIZE;
-            cf.crTextColor = RGB(0, 0, 0);
-            cf.dwEffects = 0;
-            cf.yHeight = 180;
-            lstrcpyW(cf.szFaceName, L"Consolas");
-            SendMessageW(g_hEdit, EM_SETCHARFORMAT, SCF_ALL, (LPARAM)&cf);
+            /* Initialize and apply default font */
+            InitDefaultFont();
+            ApplyFontToEdit(g_hEdit, &g_logFont);
 
             UpdateTitle(hWnd);
             UpdateMenuState(hWnd);
@@ -467,6 +581,10 @@ static LRESULT CALLBACK MainWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM l
             return 0;
         case IDM_LOG_SAVEAS:
             GUI_OnLogSaveAs(hWnd);
+            SetFocus(g_hEdit);
+            return 0;
+        case IDM_LOG_FONT:
+            GUI_OnLogFont(hWnd);
             SetFocus(g_hEdit);
             return 0;
         case IDM_EXIT:

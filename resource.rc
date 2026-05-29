@@ -33,6 +33,8 @@ BEGIN
     BEGIN
         MENUITEM "&Clear", IDM_LOG_CLEAR
         MENUITEM "Save &as...", IDM_LOG_SAVEAS
+        MENUITEM SEPARATOR
+        MENUITEM "&Font...", IDM_LOG_FONT
     END
     POPUP "&Help"
     BEGIN

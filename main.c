@@ -7,6 +7,7 @@
 
 #include <windows.h>
 #include "gui.h"
+#include "config.h"
 #include "trace.h"
 
 static const char *TAG = "MAIN";
@@ -20,6 +21,9 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPWSTR lpCmdLi
 
     TRACE_INIT();
     TRACE_LOG(TAG, "=== SerialEcho Started ===");
+
+    /* Initialize configuration */
+    Config_Init();
 
     /* Initialize GUI subsystem */
     if (!GUI_Init(hInstance)) {

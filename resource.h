@@ -18,8 +18,9 @@
 #define IDM_DISCONNECT      2002    /* Serial > Disconnect */
 #define IDM_LOG_CLEAR       2003    /* Log > Clear */
 #define IDM_LOG_SAVEAS      2004    /* Log > Save as... */
-#define IDM_EXIT            2005    /* File > Exit */
-#define IDM_ABOUT           2006    /* Help > About */
+#define IDM_LOG_FONT        2005    /* Log > Font... */
+#define IDM_EXIT            2006    /* File > Exit */
+#define IDM_ABOUT           2007    /* Help > About */
 
 /* Dialog IDs */
 #define IDD_PORT_SELECT     3001    /* Port selection dialog */

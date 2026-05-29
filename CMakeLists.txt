@@ -18,6 +18,7 @@ add_executable(SerialEcho WIN32
     main.c
     gui.c
     serial.c
+    config.c
     trace.c
     resource.rc
 )
