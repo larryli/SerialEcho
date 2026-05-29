@@ -74,12 +74,12 @@ STRINGTABLE
 {
     IDS_APP_NAME        "SerialEcho"
     IDS_DISCONNECTED    "Disconnected"
-    IDS_PORT_CONFIG     "115200,8N1"
+    IDS_TITLE_FORMAT    "SerialEcho - %s"
     IDS_TIP_CONNECT     "Connect"
     IDS_TIP_DISCONNECT  "Disconnect"
     IDS_TIP_PING        "Ping"
     IDS_TIP_CLEAR       "Clear Log"
-    IDS_TIP_SAVEAS      "Save Log"
+    IDS_TIP_SAVEAS      "Save Log As..."
 }
 
 STRINGTABLE

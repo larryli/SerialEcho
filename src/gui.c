@@ -56,9 +56,9 @@ static void UpdateTitle(HWND hWnd)
 {
     WCHAR title[128];
     if (Serial_IsOpen(&g_serial))
-        wsprintfW(title, L"SerialEcho - %s", g_szPort);
+        wsprintfW(title, LoadStr(IDS_TITLE_FORMAT), g_szPort);
     else
-        lstrcpyW(title, L"SerialEcho");
+        lstrcpyW(title, LoadStr(IDS_APP_NAME));
     SetWindowTextW(hWnd, title);
 }
 
@@ -83,7 +83,7 @@ static void UpdateStatusBar(void)
     else
         SendMessageW(g_hStatusbar, SB_SETTEXT, 1, (LPARAM)LoadStr(IDS_DISCONNECTED));
 
-    SendMessageW(g_hStatusbar, SB_SETTEXT, 2, (LPARAM)LoadStr(IDS_PORT_CONFIG));
+    SendMessageW(g_hStatusbar, SB_SETTEXT, 2, (LPARAM)L"115200,8N1");
 }
 
 /* Port selection dialog procedure */

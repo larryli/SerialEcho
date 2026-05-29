@@ -35,7 +35,7 @@
 /* String IDs */
 #define IDS_APP_NAME        10001
 #define IDS_DISCONNECTED    10002
-#define IDS_PORT_CONFIG     10003
+#define IDS_TITLE_FORMAT    10004  /* "SerialEcho - %s" */
 
 /* Menu strings */
 #define IDS_MENU_FILE       10010
