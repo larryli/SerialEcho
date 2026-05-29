@@ -617,27 +617,25 @@ static LRESULT CALLBACK MainWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM l
 
     case WM_NOTIFY:
         /* Handle toolbar tooltip requests */
-        if (((NMHDR *)lParam)->hwndFrom == g_hToolbar) {
-            if (((NMHDR *)lParam)->code == TTN_GETDISPINFOW) {
-                NMTTDISPINFOW *ttt = (NMTTDISPINFOW *)lParam;
-                ttt->hinst = GetModuleHandleW(NULL);
-                switch (ttt->hdr.idFrom) {
-                case IDM_CONNECT:
-                    ttt->lpszText = MAKEINTRESOURCEW(IDS_TIP_CONNECT);
-                    return 0;
-                case IDM_DISCONNECT:
-                    ttt->lpszText = MAKEINTRESOURCEW(IDS_TIP_DISCONNECT);
-                    return 0;
-                case IDM_PING:
-                    ttt->lpszText = MAKEINTRESOURCEW(IDS_TIP_PING);
-                    return 0;
-                case IDM_LOG_CLEAR:
-                    ttt->lpszText = MAKEINTRESOURCEW(IDS_TIP_CLEAR);
-                    return 0;
-                case IDM_LOG_SAVEAS:
-                    ttt->lpszText = MAKEINTRESOURCEW(IDS_TIP_SAVEAS);
-                    return 0;
-                }
+        if (((NMHDR *)lParam)->code == TTN_GETDISPINFOW) {
+            NMTTDISPINFOW *ttt = (NMTTDISPINFOW *)lParam;
+            ttt->hinst = GetModuleHandleW(NULL);
+            switch (ttt->hdr.idFrom) {
+            case IDM_CONNECT:
+                ttt->lpszText = MAKEINTRESOURCEW(IDS_TIP_CONNECT);
+                return 0;
+            case IDM_DISCONNECT:
+                ttt->lpszText = MAKEINTRESOURCEW(IDS_TIP_DISCONNECT);
+                return 0;
+            case IDM_PING:
+                ttt->lpszText = MAKEINTRESOURCEW(IDS_TIP_PING);
+                return 0;
+            case IDM_LOG_CLEAR:
+                ttt->lpszText = MAKEINTRESOURCEW(IDS_TIP_CLEAR);
+                return 0;
+            case IDM_LOG_SAVEAS:
+                ttt->lpszText = MAKEINTRESOURCEW(IDS_TIP_SAVEAS);
+                return 0;
             }
         }
         break;
