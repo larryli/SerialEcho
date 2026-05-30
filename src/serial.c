@@ -137,7 +137,7 @@ static DWORD WINAPI Listener_Proc(LPVOID param)
 
         if (!WaitCommEvent(ctx->hPort, &dwEvtMask, &ov)) {
             if (GetLastError() == ERROR_IO_PENDING) {
-                DWORD waitResult = WaitForSingleObject(ov.hEvent, 500);
+                DWORD waitResult = WaitForSingleObject(ov.hEvent, 100);
                 if (waitResult == WAIT_TIMEOUT)
                     continue;
                 if (waitResult != WAIT_OBJECT_0) {
@@ -236,11 +236,16 @@ static DWORD WINAPI Listener_Proc(LPVOID param)
 
         /* Handle signal changes (DSR/CTS from host) */
         if (dwEvtMask & (EV_DSR | EV_CTS)) {
-            if (ctx->onSignal) {
-                DWORD modemStatus = 0;
-                if (GetCommModemStatus(ctx->hPort, &modemStatus)) {
-                    ctx->onSignal(ctx, modemStatus, ctx->hNotify);
+            DWORD modemStatus = 0;
+            if (GetCommModemStatus(ctx->hPort, &modemStatus)) {
+                /* Notify UI to display signal change: wParam=0 for host signals */
+                if (ctx->hNotify && IsWindow(ctx->hNotify)) {
+                    PostMessage(ctx->hNotify, WM_SERIAL_SIGNAL, 0, (LPARAM)modemStatus);
                 }
+
+                /* Call signal callback */
+                if (ctx->onSignal)
+                    ctx->onSignal(ctx, modemStatus, ctx->hNotify);
             }
         }
     }
@@ -270,10 +275,7 @@ BOOL Serial_Open(SERIAL_CTX *ctx, const WCHAR *portName, HWND hNotify)
 
     /* Create events */
     ctx->hStartEvent = CreateEvent(NULL, TRUE, FALSE, NULL);
-    ctx->hIOEvent = CreateEvent(NULL, TRUE, TRUE, NULL);
-    if (!ctx->hStartEvent || !ctx->hIOEvent) {
-        if (ctx->hStartEvent) CloseHandle(ctx->hStartEvent);
-        if (ctx->hIOEvent) CloseHandle(ctx->hIOEvent);
+    if (!ctx->hStartEvent) {
         return FALSE;
     }
 
@@ -286,8 +288,7 @@ BOOL Serial_Open(SERIAL_CTX *ctx, const WCHAR *portName, HWND hNotify)
     if (ctx->hPort == INVALID_HANDLE_VALUE) {
         TRACE_LOG(TAG, "ERROR: CreateFileW failed: %lu", GetLastError());
         CloseHandle(ctx->hStartEvent);
-        CloseHandle(ctx->hIOEvent);
-        return FALSE;
+                return FALSE;
     }
 
     /* Configure serial port: 115200 baud, 8 data bits, no parity, 1 stop bit */
@@ -296,8 +297,7 @@ BOOL Serial_Open(SERIAL_CTX *ctx, const WCHAR *portName, HWND hNotify)
         CloseHandle(ctx->hPort);
         ctx->hPort = INVALID_HANDLE_VALUE;
         CloseHandle(ctx->hStartEvent);
-        CloseHandle(ctx->hIOEvent);
-        return FALSE;
+                return FALSE;
     }
 
     dcb.BaudRate = CBR_115200;
@@ -315,8 +315,7 @@ BOOL Serial_Open(SERIAL_CTX *ctx, const WCHAR *portName, HWND hNotify)
         CloseHandle(ctx->hPort);
         ctx->hPort = INVALID_HANDLE_VALUE;
         CloseHandle(ctx->hStartEvent);
-        CloseHandle(ctx->hIOEvent);
-        return FALSE;
+                return FALSE;
     }
 
     /* Set timeouts */
@@ -351,8 +350,7 @@ BOOL Serial_Open(SERIAL_CTX *ctx, const WCHAR *portName, HWND hNotify)
         CloseHandle(ctx->hPort);
         ctx->hPort = INVALID_HANDLE_VALUE;
         CloseHandle(ctx->hStartEvent);
-        CloseHandle(ctx->hIOEvent);
-        return FALSE;
+                return FALSE;
     }
 
     /* Wait for thread to start */
@@ -401,10 +399,6 @@ void Serial_Close(SERIAL_CTX *ctx)
     if (ctx->hStartEvent) {
         CloseHandle(ctx->hStartEvent);
         ctx->hStartEvent = NULL;
-    }
-    if (ctx->hIOEvent) {
-        CloseHandle(ctx->hIOEvent);
-        ctx->hIOEvent = NULL;
     }
 }
 
@@ -520,7 +514,12 @@ BOOL Serial_SetDtr(SERIAL_CTX *ctx, BOOL state)
     if (!ctx || ctx->hPort == INVALID_HANDLE_VALUE || ctx->hPort == NULL)
         return FALSE;
 
-    return EscapeCommFunction(ctx->hPort, state ? SETDTR : CLRDTR);
+    BOOL result = EscapeCommFunction(ctx->hPort, state ? SETDTR : CLRDTR);
+    if (result && ctx->hNotify && IsWindow(ctx->hNotify)) {
+        /* Post signal change: wParam = 1 for DTR, lParam = state */
+        PostMessage(ctx->hNotify, WM_SERIAL_SIGNAL, 1, (LPARAM)state);
+    }
+    return result;
 }
 
 /* Set or clear RTS signal */
@@ -529,7 +528,12 @@ BOOL Serial_SetRts(SERIAL_CTX *ctx, BOOL state)
     if (!ctx || ctx->hPort == INVALID_HANDLE_VALUE || ctx->hPort == NULL)
         return FALSE;
 
-    return EscapeCommFunction(ctx->hPort, state ? SETRTS : CLRRTS);
+    BOOL result = EscapeCommFunction(ctx->hPort, state ? SETRTS : CLRRTS);
+    if (result && ctx->hNotify && IsWindow(ctx->hNotify)) {
+        /* Post signal change: wParam = 2 for RTS, lParam = state */
+        PostMessage(ctx->hNotify, WM_SERIAL_SIGNAL, 2, (LPARAM)state);
+    }
+    return result;
 }
 
 /* Change baud rate at runtime */
@@ -543,5 +547,100 @@ BOOL Serial_SetBaudRate(SERIAL_CTX *ctx, DWORD baudRate)
         return FALSE;
 
     dcb.BaudRate = baudRate;
-    return SetCommState(ctx->hPort, &dcb);
+    if (!SetCommState(ctx->hPort, &dcb))
+        return FALSE;
+
+    /* Notify UI to update config display */
+    if (ctx->hNotify && IsWindow(ctx->hNotify)) {
+        PostMessage(ctx->hNotify, WM_SERIAL_CONFIG, (WPARAM)baudRate, 0);
+    }
+
+    return TRUE;
+}
+
+/* Change data bits at runtime */
+BOOL Serial_SetDataBits(SERIAL_CTX *ctx, BYTE dataBits)
+{
+    if (!ctx || ctx->hPort == INVALID_HANDLE_VALUE || ctx->hPort == NULL)
+        return FALSE;
+    if (dataBits < 5 || dataBits > 8)
+        return FALSE;
+
+    DCB dcb = { .DCBlength = sizeof(DCB) };
+    if (!GetCommState(ctx->hPort, &dcb))
+        return FALSE;
+
+    dcb.ByteSize = dataBits;
+    if (!SetCommState(ctx->hPort, &dcb))
+        return FALSE;
+
+    /* Notify UI to update config display */
+    if (ctx->hNotify && IsWindow(ctx->hNotify)) {
+        PostMessage(ctx->hNotify, WM_SERIAL_CONFIG, 0, 0);
+    }
+
+    return TRUE;
+}
+
+/* Change parity mode */
+BOOL Serial_SetParity(SERIAL_CTX *ctx, BYTE parity)
+{
+    if (!ctx || ctx->hPort == INVALID_HANDLE_VALUE || ctx->hPort == NULL)
+        return FALSE;
+
+    DCB dcb = { .DCBlength = sizeof(DCB) };
+    if (!GetCommState(ctx->hPort, &dcb))
+        return FALSE;
+
+    dcb.Parity = parity;
+    dcb.fParity = (parity != NOPARITY);
+    if (!SetCommState(ctx->hPort, &dcb))
+        return FALSE;
+
+    /* Notify UI to update config display */
+    if (ctx->hNotify && IsWindow(ctx->hNotify)) {
+        PostMessage(ctx->hNotify, WM_SERIAL_CONFIG, 0, 0);
+    }
+
+    return TRUE;
+}
+
+/* Change stop bits */
+BOOL Serial_SetStopBits(SERIAL_CTX *ctx, BYTE stopBits)
+{
+    if (!ctx || ctx->hPort == INVALID_HANDLE_VALUE || ctx->hPort == NULL)
+        return FALSE;
+
+    DCB dcb = { .DCBlength = sizeof(DCB) };
+    if (!GetCommState(ctx->hPort, &dcb))
+        return FALSE;
+
+    dcb.StopBits = stopBits;
+    if (!SetCommState(ctx->hPort, &dcb))
+        return FALSE;
+
+    /* Notify UI to update config display */
+    if (ctx->hNotify && IsWindow(ctx->hNotify)) {
+        PostMessage(ctx->hNotify, WM_SERIAL_CONFIG, 0, 0);
+    }
+
+    return TRUE;
+}
+
+/* Get current serial port configuration */
+BOOL Serial_GetConfig(SERIAL_CTX *ctx, DWORD *baudRate, BYTE *dataBits, BYTE *parity, BYTE *stopBits)
+{
+    if (!ctx || ctx->hPort == INVALID_HANDLE_VALUE || ctx->hPort == NULL)
+        return FALSE;
+
+    DCB dcb = { .DCBlength = sizeof(DCB) };
+    if (!GetCommState(ctx->hPort, &dcb))
+        return FALSE;
+
+    if (baudRate) *baudRate = dcb.BaudRate;
+    if (dataBits) *dataBits = dcb.ByteSize;
+    if (parity) *parity = dcb.Parity;
+    if (stopBits) *stopBits = dcb.StopBits;
+
+    return TRUE;
 }

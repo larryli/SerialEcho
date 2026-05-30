@@ -37,10 +37,11 @@ static const char *TAG = "GUI";
 #define MAX_MSG_SIZE        65536
 
 /* Global state */
-static SERIAL_CTX g_serial = { .hPort = NULL, .hThread = NULL, .hStartEvent = NULL, .hIOEvent = NULL, .hNotify = NULL, .bRunning = FALSE };
+static SERIAL_CTX g_serial = { .hPort = NULL, .hThread = NULL, .hStartEvent = NULL, .hNotify = NULL, .bRunning = FALSE };
 static HWND g_hToolbar = NULL;
 static HWND g_hStatusbar = NULL;
 static HWND g_hEdit = NULL;
+static HDEVNOTIFY g_hDevNotify = NULL;  /* Device notification handle */
 static WCHAR g_szPort[32] = {0};
 static WCHAR g_szSelectedPort[32] = {0};
 static LOGFONTW g_logFont = {0};  /* Current font */
@@ -87,12 +88,37 @@ static void UpdateStatusBar(void)
 
     SendMessageW(g_hStatusbar, SB_SETTEXT, 0, (LPARAM)L"");
 
-    if (Serial_IsOpen(&g_serial))
+    if (Serial_IsOpen(&g_serial)) {
         SendMessageW(g_hStatusbar, SB_SETTEXT, 1, (LPARAM)g_szPort);
-    else
-        SendMessageW(g_hStatusbar, SB_SETTEXT, 1, (LPARAM)LoadStr(IDS_DISCONNECTED));
 
-    SendMessageW(g_hStatusbar, SB_SETTEXT, 2, (LPARAM)L"115200,8N1");
+        /* Build config string from current serial settings */
+        DWORD baudRate = 115200;
+        BYTE dataBits = 8, parity = NOPARITY, stopBits = ONESTOPBIT;
+        Serial_GetConfig(&g_serial, &baudRate, &dataBits, &parity, &stopBits);
+
+        const WCHAR *parityStr = L"N";
+        switch (parity) {
+        case NOPARITY: parityStr = L"N"; break;
+        case ODDPARITY: parityStr = L"O"; break;
+        case EVENPARITY: parityStr = L"E"; break;
+        case MARKPARITY: parityStr = L"M"; break;
+        case SPACEPARITY: parityStr = L"S"; break;
+        }
+
+        const WCHAR *stopStr = L"1";
+        switch (stopBits) {
+        case ONESTOPBIT: stopStr = L"1"; break;
+        case ONE5STOPBITS: stopStr = L"1.5"; break;
+        case TWOSTOPBITS: stopStr = L"2"; break;
+        }
+
+        WCHAR configBuf[32];
+        wsprintfW(configBuf, L"%lu,%d%s%s", baudRate, dataBits, parityStr, stopStr);
+        SendMessageW(g_hStatusbar, SB_SETTEXT, 2, (LPARAM)configBuf);
+    } else {
+        SendMessageW(g_hStatusbar, SB_SETTEXT, 1, (LPARAM)LoadStr(IDS_DISCONNECTED));
+        SendMessageW(g_hStatusbar, SB_SETTEXT, 2, (LPARAM)L"");
+    }
 }
 
 /* Port selection dialog procedure */
@@ -172,6 +198,8 @@ static BOOL ShowPortSelectDialog(HWND hWnd)
 #define COLOR_TIMESTAMP RGB(128, 128, 128)  /* Gray */
 #define COLOR_RX        RGB(0, 0, 200)      /* Blue */
 #define COLOR_TX        RGB(0, 128, 0)      /* Green */
+#define COLOR_SIGNAL    RGB(128, 0, 128)    /* Purple */
+#define COLOR_CONFIG    RGB(0, 128, 128)    /* Teal */
 #define COLOR_CUSTOM    RGB(200, 100, 0)    /* Orange */
 #define COLOR_DATA      RGB(0, 0, 0)        /* Black */
 #define COLOR_BG        RGB(240, 240, 240)  /* Light gray */
@@ -291,6 +319,39 @@ static void Main_AppendCustomLog(HWND hMainWnd, const WCHAR *tag, const WCHAR *t
     SendMessageW(g_hEdit, EM_SCROLLCARET, 0, 0);
 }
 
+/* Format and append signal/config log with distinct colors */
+static void Main_AppendSignalLog(const WCHAR *tag, const WCHAR *text, COLORREF tagColor)
+{
+    if (!g_hEdit || !tag || !text)
+        return;
+
+    SYSTEMTIME st;
+    GetLocalTime(&st);
+
+    /* Build timestamp: "YYYY-MM-DD HH:MM:SS.mmm " */
+    WCHAR timestamp[32];
+    int tsLen = wsprintfW(timestamp, L"%04d-%02d-%02d %02d:%02d:%02d.%03d ",
+                          st.wYear, st.wMonth, st.wDay,
+                          st.wHour, st.wMinute, st.wSecond, st.wMilliseconds);
+
+    /* Build tag: "[tag] " */
+    WCHAR tagStr[64];
+    int tagLen = wsprintfW(tagStr, L"[%s] ", tag);
+
+    /* Append with colors: timestamp (gray) + tag (signal/config color) + text (gray) */
+    AppendColoredText(g_hEdit, timestamp, tsLen, COLOR_TIMESTAMP);
+    AppendColoredText(g_hEdit, tagStr, tagLen, tagColor);
+    AppendColoredText(g_hEdit, text, lstrlenW(text), COLOR_TIMESTAMP);
+
+    /* Append newline */
+    AppendColoredText(g_hEdit, L"\r\n", 2, COLOR_DATA);
+
+    /* Scroll to end */
+    int textLen = GetWindowTextLengthW(g_hEdit);
+    SendMessageW(g_hEdit, EM_SETSEL, textLen, textLen);
+    SendMessageW(g_hEdit, EM_SCROLLCARET, 0, 0);
+}
+
 /* Handle Connect command */
 static void Main_OnConnect(HWND hMainWnd)
 {
@@ -329,6 +390,7 @@ static void Main_OnConnect(HWND hMainWnd)
     UpdateTitle(hMainWnd);
     UpdateMenuState(hMainWnd);
     UpdateStatusBar();
+    SetFocus(g_hEdit);
 
     TRACE_LOG(TAG, "Main_OnConnect completed");
 }
@@ -344,6 +406,7 @@ static void Main_OnDisconnect(HWND hMainWnd)
     UpdateTitle(hMainWnd);
     UpdateMenuState(hMainWnd);
     UpdateStatusBar();
+    SetFocus(g_hEdit);
 }
 
 /* Handle Serial > Ping command - send random data */
@@ -593,7 +656,7 @@ static LRESULT CALLBACK MainWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM l
             dbi.dbcc_size = sizeof(DEV_BROADCAST_DEVICEINTERFACE);
             dbi.dbcc_devicetype = DBT_DEVTYP_DEVICEINTERFACE;
             dbi.dbcc_classguid = GUID_DEVCLASS_PORTS;
-            RegisterDeviceNotificationW(hWnd, &dbi, DEVICE_NOTIFY_WINDOW_HANDLE);
+            g_hDevNotify = RegisterDeviceNotificationW(hWnd, &dbi, DEVICE_NOTIFY_WINDOW_HANDLE);
 
             UpdateTitle(hWnd);
             UpdateMenuState(hWnd);
@@ -735,6 +798,62 @@ static LRESULT CALLBACK MainWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM l
         }
         return 0;
 
+    case WM_SERIAL_SIGNAL:
+        /* Signal change notification */
+        {
+            DWORD param = (DWORD)wParam;
+            if (param == 0) {
+                /* Host signal change (DSR/CTS from GetCommModemStatus) */
+                DWORD modemStatus = (DWORD)lParam;
+                WCHAR buf[64];
+                wsprintfW(buf, L"DSR:%s CTS:%s",
+                          (modemStatus & MS_DSR_ON) ? L"ON" : L"OFF",
+                          (modemStatus & MS_CTS_ON) ? L"ON" : L"OFF");
+                Main_AppendSignalLog(L"SIG", buf, COLOR_SIGNAL);
+            } else if (param == 1) {
+                /* DTR change */
+                BOOL state = (BOOL)lParam;
+                WCHAR buf[32];
+                wsprintfW(buf, L"DTR:%s", state ? L"ON" : L"OFF");
+                Main_AppendSignalLog(L"SIG", buf, COLOR_SIGNAL);
+            } else if (param == 2) {
+                /* RTS change */
+                BOOL state = (BOOL)lParam;
+                WCHAR buf[32];
+                wsprintfW(buf, L"RTS:%s", state ? L"ON" : L"OFF");
+                Main_AppendSignalLog(L"SIG", buf, COLOR_SIGNAL);
+            }
+        }
+        return 0;
+
+    case WM_SERIAL_CONFIG:
+        /* Configuration change notification */
+        {
+            DWORD baudRate = 0;
+            BYTE dataBits = 0, parity = 0, stopBits = 0;
+            if (Serial_GetConfig(&g_serial, &baudRate, &dataBits, &parity, &stopBits)) {
+                const WCHAR *parityStr = L"N";
+                switch (parity) {
+                case NOPARITY: parityStr = L"N"; break;
+                case ODDPARITY: parityStr = L"O"; break;
+                case EVENPARITY: parityStr = L"E"; break;
+                case MARKPARITY: parityStr = L"M"; break;
+                case SPACEPARITY: parityStr = L"S"; break;
+                }
+                const WCHAR *stopStr = L"1";
+                switch (stopBits) {
+                case ONESTOPBIT: stopStr = L"1"; break;
+                case ONE5STOPBITS: stopStr = L"1.5"; break;
+                case TWOSTOPBITS: stopStr = L"2"; break;
+                }
+                WCHAR buf[64];
+                wsprintfW(buf, L"%lu,%d%s%s", baudRate, dataBits, parityStr, stopStr);
+                Main_AppendSignalLog(L"CFG", buf, COLOR_CONFIG);
+            }
+            UpdateStatusBar();
+        }
+        return 0;
+
     case WM_DEVICECHANGE:
         /* Handle device removal */
         if (wParam == DBT_DEVICEREMOVECOMPLETE && Serial_IsOpen(&g_serial)) {
@@ -765,6 +884,11 @@ static LRESULT CALLBACK MainWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM l
         return 0;
 
     case WM_DESTROY:
+        /* Unregister device notifications */
+        if (g_hDevNotify) {
+            UnregisterDeviceNotification(g_hDevNotify);
+            g_hDevNotify = NULL;
+        }
         Serial_Close(&g_serial);
         PostQuitMessage(0);
         return 0;

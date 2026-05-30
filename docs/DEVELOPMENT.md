@@ -6,12 +6,12 @@
 
 ```
 ┌─────────────┐     ┌─────────────┐          ┌─────────────┐
-│   gui.c     │────▶│  serial.c   │──回调──▶│ protocol.c  │
+│   main.c    │────▶│  serial.c   │──回调──▶│ protocol.c  │
 │  (UI层)     │     │ (通信层)    │          │ (协议层)    │
 └─────────────┘     └─────────────┘          └─────────────┘
 ```
 
-- **gui.c**: 用户界面，注册协议回调，处理菜单/工具栏命令，显示日志
+- **main.c**: 用户界面，注册协议回调，处理菜单/工具栏命令，显示日志
 - **serial.c**: 串口通信，管理端口开关、数据收发，通过回调通知协议层
 - **protocol.c**: 协议处理，实现回调函数，决定如何响应接收的数据
 
@@ -136,11 +136,15 @@ KillTimer(hWnd, IDT_HEARTBEAT);
 
 | 消息 | 用途 | wParam | lParam |
 |------|------|--------|--------|
-| WM_USER + 1 | RX 数据到达 | 数据长度 | 数据指针 (HeapAlloc) |
-| WM_USER + 2 | TX 数据已发送 | 数据长度 | 数据指针 (HeapAlloc) |
-| WM_USER + 3 | 连接错误 | 错误代码 | 0 |
+| WM_SERIAL_RX | RX 数据到达 | 数据长度 | 数据指针 (HeapAlloc) |
+| WM_SERIAL_TX | TX 数据已发送 | 数据长度 | 数据指针 (HeapAlloc) |
+| WM_SERIAL_ERROR | 连接错误 | 错误代码 | 0 |
+| WM_SERIAL_LOG | 自定义日志 | WCHAR* tag | WCHAR* text |
+| WM_SERIAL_SIGNAL | 信号变化 | modemStatus | 0 |
+| WM_SERIAL_CONFIG | 配置变更 | 保留 | 0 |
 
-接收端需要 HeapFree 释放 lParam 指向的内存。
+接收 WM_SERIAL_RX/TX 的数据指针需要 HeapFree 释放。
+接收 WM_SERIAL_LOG 的 tag/text 指针需要 HeapFree 释放。
 
 ## 内存管理规则
 

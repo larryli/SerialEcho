@@ -27,7 +27,6 @@ typedef struct {
     HANDLE hPort;           /* Serial port handle */
     HANDLE hThread;         /* Listener thread handle */
     HANDLE hStartEvent;     /* Thread start synchronization event */
-    HANDLE hIOEvent;        /* I/O completion event */
     HWND hNotify;           /* Window to receive WM_SERIAL_* messages */
     volatile BOOL bRunning; /* Thread running flag */
     volatile DWORD dwRxBytes; /* Total bytes received */
@@ -112,6 +111,36 @@ BOOL Serial_SetRts(SERIAL_CTX *ctx, BOOL state);
  * Returns: TRUE on success
  */
 BOOL Serial_SetBaudRate(SERIAL_CTX *ctx, DWORD baudRate);
+
+/*
+ * Serial_SetDataBits - Change data bits (5, 6, 7, 8)
+ * Returns: TRUE on success
+ */
+BOOL Serial_SetDataBits(SERIAL_CTX *ctx, BYTE dataBits);
+
+/*
+ * Serial_SetParity - Change parity mode
+ * @parity: NOPARITY, ODDPARITY, EVENPARITY, MARKPARITY, SPACEPARITY
+ * Returns: TRUE on success
+ */
+BOOL Serial_SetParity(SERIAL_CTX *ctx, BYTE parity);
+
+/*
+ * Serial_SetStopBits - Change stop bits
+ * @stopBits: ONESTOPBIT, ONE5STOPBITS, TWOSTOPBITS
+ * Returns: TRUE on success
+ */
+BOOL Serial_SetStopBits(SERIAL_CTX *ctx, BYTE stopBits);
+
+/*
+ * Serial_GetConfig - Get current serial port configuration
+ * @baudRate: Pointer to receive baud rate (can be NULL)
+ * @dataBits: Pointer to receive data bits (can be NULL)
+ * @parity: Pointer to receive parity (can be NULL)
+ * @stopBits: Pointer to receive stop bits (can be NULL)
+ * Returns: TRUE on success
+ */
+BOOL Serial_GetConfig(SERIAL_CTX *ctx, DWORD *baudRate, BYTE *dataBits, BYTE *parity, BYTE *stopBits);
 
 /*
  * Serial_PostLog - Post a custom log message to the UI thread

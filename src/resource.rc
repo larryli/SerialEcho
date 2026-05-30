@@ -97,7 +97,6 @@ STRINGTABLE
     IDS_MSG_DEV_REMOVED "Serial port device has been disconnected."
     IDS_MSG_DEV_TITLE   "Device Removed"
     IDS_LOG_SAVE_FILTER "Log Files (*.log)\0*.log\0All Files (*.*)\0*.*\0"
-    IDS_FONT_TITLE      "Font"
     IDS_MSG_CONN_LOST   "Connection lost. Serial port error."
 }
 

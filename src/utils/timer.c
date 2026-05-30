@@ -7,13 +7,13 @@
 
 #include "timer.h"
 #include "trace.h"
-#include <process.h>
 
 static const char *TAG = "TIMER";
 
 /* Timer context structure */
 struct TIMER_CTX {
     HANDLE hTimer;          /* Waitable timer handle */
+    HANDLE hShutdownEvent;  /* Shutdown signal event */
     HANDLE hThread;         /* Worker thread handle */
     volatile BOOL bRunning; /* Thread running flag */
     TIMER_CB callback;      /* User callback function */
@@ -26,20 +26,16 @@ struct TIMER_CTX {
 static DWORD WINAPI Timer_ThreadProc(LPVOID param)
 {
     TIMER_CTX *ctx = (TIMER_CTX *)param;
+    HANDLE handles[2] = { ctx->hTimer, ctx->hShutdownEvent };
 
     TRACE_LOG(TAG, "Timer thread started");
 
-    while (ctx->bRunning) {
-        /* Wait for timer signal or cancellation */
-        DWORD result = WaitForSingleObject(ctx->hTimer, INFINITE);
+    /* Wait for either timer signal or shutdown */
+    DWORD result = WaitForMultipleObjects(2, handles, FALSE, INFINITE);
 
-        if (result == WAIT_OBJECT_0 && ctx->bRunning && ctx->callback) {
-            TRACE_LOG(TAG, "Timer fired, calling callback");
-            ctx->callback(ctx->userData);
-        }
-
-        /* One-shot timer: exit after firing */
-        break;
+    if (result == WAIT_OBJECT_0 && ctx->bRunning && ctx->callback) {
+        TRACE_LOG(TAG, "Timer fired, calling callback");
+        ctx->callback(ctx->userData);
     }
 
     TRACE_LOG(TAG, "Timer thread exiting");
@@ -56,6 +52,14 @@ TIMER_CTX *Timer_Create(void)
     ctx->hTimer = CreateWaitableTimerW(NULL, TRUE, NULL);
     if (!ctx->hTimer) {
         TRACE_LOG(TAG, "ERROR: CreateWaitableTimer failed: %lu", GetLastError());
+        HeapFree(GetProcessHeap(), 0, ctx);
+        return NULL;
+    }
+
+    ctx->hShutdownEvent = CreateEventW(NULL, TRUE, FALSE, NULL);
+    if (!ctx->hShutdownEvent) {
+        TRACE_LOG(TAG, "ERROR: CreateEvent failed: %lu", GetLastError());
+        CloseHandle(ctx->hTimer);
         HeapFree(GetProcessHeap(), 0, ctx);
         return NULL;
     }
@@ -82,6 +86,10 @@ void Timer_Destroy(TIMER_CTX *ctx)
         CloseHandle(ctx->hTimer);
         ctx->hTimer = NULL;
     }
+    if (ctx->hShutdownEvent) {
+        CloseHandle(ctx->hShutdownEvent);
+        ctx->hShutdownEvent = NULL;
+    }
 
     HeapFree(GetProcessHeap(), 0, ctx);
     TRACE_LOG(TAG, "Timer context destroyed");
@@ -95,6 +103,9 @@ BOOL Timer_Start(TIMER_CTX *ctx, DWORD timeoutMs, TIMER_CB cb, void *userData)
 
     /* Cancel any existing timer */
     Timer_Cancel(ctx);
+
+    /* Reset shutdown event */
+    ResetEvent(ctx->hShutdownEvent);
 
     ctx->callback = cb;
     ctx->userData = userData;
@@ -131,7 +142,8 @@ void Timer_Cancel(TIMER_CTX *ctx)
     if (ctx->bRunning) {
         ctx->bRunning = FALSE;
 
-        /* Cancel the timer */
+        /* Signal shutdown and cancel timer */
+        SetEvent(ctx->hShutdownEvent);
         if (ctx->hTimer)
             CancelWaitableTimer(ctx->hTimer);
 
