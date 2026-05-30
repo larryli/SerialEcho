@@ -803,12 +803,14 @@ static LRESULT CALLBACK MainWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM l
         {
             DWORD param = (DWORD)wParam;
             if (param == 0) {
-                /* Host signal change (DSR/CTS from GetCommModemStatus) */
+                /* Host signal change (DSR/CTS/RI/DCD from GetCommModemStatus) */
                 DWORD modemStatus = (DWORD)lParam;
-                WCHAR buf[64];
-                wsprintfW(buf, L"DSR:%s CTS:%s",
+                WCHAR buf[96];
+                wsprintfW(buf, L"DSR:%s CTS:%s RI:%s DCD:%s",
                           (modemStatus & MS_DSR_ON) ? L"ON" : L"OFF",
-                          (modemStatus & MS_CTS_ON) ? L"ON" : L"OFF");
+                          (modemStatus & MS_CTS_ON) ? L"ON" : L"OFF",
+                          (modemStatus & MS_RING_ON) ? L"ON" : L"OFF",
+                          (modemStatus & MS_RLSD_ON) ? L"ON" : L"OFF");
                 Main_AppendSignalLog(L"SIG", buf, COLOR_SIGNAL);
             } else if (param == 1) {
                 /* DTR change */

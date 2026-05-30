@@ -127,7 +127,7 @@ static DWORD WINAPI Listener_Proc(LPVOID param)
 
     while (ctx->bRunning) {
         /* Set comm mask to listen for receive and signal events */
-        if (!SetCommMask(ctx->hPort, EV_RXCHAR | EV_ERR | EV_DSR | EV_CTS)) {
+        if (!SetCommMask(ctx->hPort, EV_RXCHAR | EV_ERR | EV_DSR | EV_CTS | EV_RING | EV_RLSD)) {
             errorExit = TRUE;
             break;
         }
@@ -234,8 +234,8 @@ static DWORD WINAPI Listener_Proc(LPVOID param)
             TRACE_FW(TAG, "Comm error: 0x%08lX", dwErrors);
         }
 
-        /* Handle signal changes (DSR/CTS from host) */
-        if (dwEvtMask & (EV_DSR | EV_CTS)) {
+        /* Handle signal changes (DSR/CTS/RI/DCD from host) */
+        if (dwEvtMask & (EV_DSR | EV_CTS | EV_RING | EV_RLSD)) {
             DWORD modemStatus = 0;
             if (GetCommModemStatus(ctx->hPort, &modemStatus)) {
                 /* Notify UI to display signal change: wParam=0 for host signals */
