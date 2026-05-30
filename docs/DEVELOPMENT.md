@@ -148,6 +148,38 @@ KillTimer(hWnd, IDT_HEARTBEAT);
 2. **Serial_WriteData**: 内部复制数据用于 TX 通知，不影响传入的缓冲区
 3. **PostMessage**: 接收端负责释放 lParam 指向的内存
 
+## 定时器工具
+
+协议层可使用 `timer.h` 提供的定时器接口实现超时处理：
+
+```c
+#include "utils/timer.h"
+
+// 创建定时器
+TIMER_CTX *timer = Timer_Create();
+
+// 启动一次性定时器（5秒超时）
+Timer_Start(timer, 5000, MyTimeoutCallback, userData);
+
+// 取消定时器
+Timer_Cancel(timer);
+
+// 销毁定时器
+Timer_Destroy(timer);
+```
+
+### 定时器回调
+
+```c
+void MyTimeoutCallback(void *userData)
+{
+    // 注意：回调在工作线程中执行，不是 UI 线程
+    // 如需操作 UI，请使用 PostMessage
+    SERIAL_CTX *ctx = (SERIAL_CTX *)userData;
+    Serial_PostLog(ctx->hNotify, L"TIMEOUT", L"Response timeout");
+}
+```
+
 ## 编译调试
 
 ```powershell
@@ -170,8 +202,23 @@ cmake --build .
 | `Serial_IsOpen()` | 检查连接状态 |
 | `Serial_WriteData()` | 写入数据 |
 | `Serial_SetReceiveCallback()` | 设置接收回调 |
+| `Serial_SetSignalCallback()` | 设置信号变化回调 |
+| `Serial_SetDtr()` | 设置/清除 DTR |
+| `Serial_SetRts()` | 设置/清除 RTS |
+| `Serial_SetBaudRate()` | 修改波特率 |
 | `Serial_GetRxBytes()` | 获取接收字节数 |
 | `Serial_GetTxBytes()` | 获取发送字节数 |
+| `Serial_PostLog()` | 发送日志到 UI |
+
+### timer.h
+
+| 函数 | 说明 |
+|------|------|
+| `Timer_Create()` | 创建定时器上下文 |
+| `Timer_Destroy()` | 销毁定时器 |
+| `Timer_Start()` | 启动一次性定时器 |
+| `Timer_Cancel()` | 取消运行中的定时器 |
+| `Timer_IsRunning()` | 检查定时器是否运行中 |
 
 ### protocol.h
 

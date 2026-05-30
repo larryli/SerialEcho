@@ -18,6 +18,7 @@ add_executable(SerialEcho WIN32
     src/utils/config.c
     src/utils/lang.c
     src/utils/trace.c
+    src/utils/timer.c
     src/resource.rc
 )
 

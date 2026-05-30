@@ -48,6 +48,7 @@ SerialEcho/
 │   └── utils/              # 辅助模块
 │       ├── config.c / config.h   # 配置持久化
 │       ├── lang.c / lang.h       # 国际化辅助
+│       ├── timer.c / timer.h     # 定时器工具
 │       └── trace.c / trace.h     # 调试日志
 ├── res/                    # 资源文件（图标、位图、清单）
 ├── docs/                   # 文档
