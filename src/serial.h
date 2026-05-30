@@ -2,11 +2,8 @@
  * serial.h - Serial port communication module interface
  *
  * Provides functions for enumerating, opening, closing serial ports,
- * and reading/writing data using WaitCommEvent-based event-driven I/O.
- *
- * The receive callback allows decoupling the protocol handler from
- * the serial module. Register a callback via Serial_SetReceiveCallback()
- * to process received data.
+ * reading/writing data, and signal control using WaitCommEvent-based
+ * event-driven I/O.
  */
 
 #ifndef SERIAL_H
@@ -17,13 +14,13 @@
 /* Data direction for log display */
 typedef enum { DIR_RX, DIR_TX } DATA_DIR;
 
-/* Receive callback type - called when data is received
- * @ctx: Serial context
- * @data: Received data buffer
- * @len: Data length
- * @hNotify: Window handle for UI notifications
- */
+/* Receive callback type - called when data is received */
 typedef void (*SERIAL_RX_CB)(void *ctx, const BYTE *data, DWORD len, HWND hNotify);
+
+/* Signal change callback type - called when DSR/CTS signals change
+ * @modemStatus: Result of GetCommModemStatus() (MS_DSR_ON, MS_CTS_ON, etc.)
+ */
+typedef void (*SERIAL_SIGNAL_CB)(void *ctx, DWORD modemStatus, HWND hNotify);
 
 /* Serial port context */
 typedef struct {
@@ -31,91 +28,93 @@ typedef struct {
     HANDLE hThread;         /* Listener thread handle */
     HANDLE hStartEvent;     /* Thread start synchronization event */
     HANDLE hIOEvent;        /* I/O completion event */
-    HWND hNotify;           /* Window to receive WM_USER+1/+2/+3 */
+    HWND hNotify;           /* Window to receive WM_SERIAL_* messages */
     volatile BOOL bRunning; /* Thread running flag */
     volatile DWORD dwRxBytes; /* Total bytes received */
     volatile DWORD dwTxBytes; /* Total bytes sent */
     SERIAL_RX_CB onReceive; /* Receive data callback */
+    SERIAL_SIGNAL_CB onSignal; /* Signal change callback */
 } SERIAL_CTX;
 
 /*
  * Serial_EnumPorts - Enumerate available serial ports with friendly names
- * @hCombo: Handle to combo box to populate
- * Returns: TRUE if any ports found
  */
 BOOL Serial_EnumPorts(HWND hCombo);
 
 /*
  * Serial_Open - Open a serial port and start listener thread
- * @ctx: Serial context to initialize
- * @portName: Port name (e.g. L"COM10")
- * @hNotify: Window to receive data/error notifications
- * Returns: TRUE on success
  */
 BOOL Serial_Open(SERIAL_CTX *ctx, const WCHAR *portName, HWND hNotify);
 
 /*
  * Serial_Close - Close serial port and stop listener thread
- * @ctx: Serial context to close
  */
 void Serial_Close(SERIAL_CTX *ctx);
 
 /*
  * Serial_IsOpen - Check if port is open and running
- * @ctx: Serial context
- * Returns: TRUE if port is open
  */
 BOOL Serial_IsOpen(const SERIAL_CTX *ctx);
 
 /*
  * Serial_GetPortName - Get port name by index
- * @index: Port index from combo box item data
- * @portName: Buffer to receive port name
- * @maxLen: Buffer size in characters
- * Returns: TRUE if successful
  */
 BOOL Serial_GetPortName(int index, WCHAR *portName, int maxLen);
 
 /*
  * Serial_GetRxBytes - Get total received byte count
- * @ctx: Serial context
- * Returns: Bytes received
  */
 DWORD Serial_GetRxBytes(const SERIAL_CTX *ctx);
 
 /*
  * Serial_GetTxBytes - Get total sent byte count
- * @ctx: Serial context
- * Returns: Bytes sent
  */
 DWORD Serial_GetTxBytes(const SERIAL_CTX *ctx);
 
 /*
  * Serial_WriteData - Write data to serial port
- * @ctx: Serial context
- * @data: Data to write
- * @len: Length of data
- * @hNotify: Window to receive TX notification (can be NULL)
  * Returns: Number of bytes written
  */
 DWORD Serial_WriteData(SERIAL_CTX *ctx, const BYTE *data, DWORD len, HWND hNotify);
 
 /*
  * Serial_SetReceiveCallback - Set the receive data callback
- * @ctx: Serial context
- * @cb: Callback function (NULL to disable)
  */
 void Serial_SetReceiveCallback(SERIAL_CTX *ctx, SERIAL_RX_CB cb);
 
 /*
- * Serial_PostLog - Post a custom log message to the UI
+ * Serial_SetSignalCallback - Set the signal change callback
  *
- * Thread-safe function for protocol layer to display log messages.
- * Allocates copies of tag and text, caller does not need to keep them.
- *
- * @hNotify: Window handle (from SERIAL_CTX.hNotify)
- * @tag: Tag text (e.g. "PING", "ERR")
- * @text: Log message text
+ * Called from listener thread when EV_DSR or EV_CTS events occur.
+ * Use GetCommModemStatus() flags to check signal states:
+ *   MS_DSR_ON - DSR is ON (host DTR is asserted)
+ *   MS_CTS_ON - CTS is ON (host RTS is asserted)
+ */
+void Serial_SetSignalCallback(SERIAL_CTX *ctx, SERIAL_SIGNAL_CB cb);
+
+/*
+ * Serial_SetDtr - Set or clear DTR signal
+ * @state: TRUE to assert DTR, FALSE to clear
+ * Returns: TRUE on success
+ */
+BOOL Serial_SetDtr(SERIAL_CTX *ctx, BOOL state);
+
+/*
+ * Serial_SetRts - Set or clear RTS signal
+ * @state: TRUE to assert RTS, FALSE to clear
+ * Returns: TRUE on success
+ */
+BOOL Serial_SetRts(SERIAL_CTX *ctx, BOOL state);
+
+/*
+ * Serial_SetBaudRate - Change baud rate at runtime
+ * @baudRate: New baud rate (e.g. CBR_115200, CBR_921600)
+ * Returns: TRUE on success
+ */
+BOOL Serial_SetBaudRate(SERIAL_CTX *ctx, DWORD baudRate);
+
+/*
+ * Serial_PostLog - Post a custom log message to the UI thread
  */
 void Serial_PostLog(HWND hNotify, const WCHAR *tag, const WCHAR *text);
 

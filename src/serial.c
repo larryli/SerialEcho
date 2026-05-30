@@ -126,8 +126,8 @@ static DWORD WINAPI Listener_Proc(LPVOID param)
     SetEvent(ctx->hStartEvent);
 
     while (ctx->bRunning) {
-        /* Set comm mask to listen for receive events */
-        if (!SetCommMask(ctx->hPort, EV_RXCHAR | EV_ERR)) {
+        /* Set comm mask to listen for receive and signal events */
+        if (!SetCommMask(ctx->hPort, EV_RXCHAR | EV_ERR | EV_DSR | EV_CTS)) {
             errorExit = TRUE;
             break;
         }
@@ -233,6 +233,16 @@ static DWORD WINAPI Listener_Proc(LPVOID param)
             ClearCommError(ctx->hPort, &dwErrors, NULL);
             TRACE_LOG(TAG, "Comm error: 0x%08lX", dwErrors);
         }
+
+        /* Handle signal changes (DSR/CTS from host) */
+        if (dwEvtMask & (EV_DSR | EV_CTS)) {
+            if (ctx->onSignal) {
+                DWORD modemStatus = 0;
+                if (GetCommModemStatus(ctx->hPort, &modemStatus)) {
+                    ctx->onSignal(ctx, modemStatus, ctx->hNotify);
+                }
+            }
+        }
     }
 
     TRACE_LOG(TAG, "Listener exiting (error=%d)", errorExit);
@@ -331,6 +341,8 @@ BOOL Serial_Open(SERIAL_CTX *ctx, const WCHAR *portName, HWND hNotify)
     ctx->bRunning = TRUE;
     ctx->dwRxBytes = 0;
     ctx->dwTxBytes = 0;
+    ctx->onReceive = NULL;
+    ctx->onSignal = NULL;
 
     ctx->hThread = CreateThread(NULL, 0, Listener_Proc, ctx, 0, NULL);
     if (!ctx->hThread) {
@@ -493,4 +505,43 @@ void Serial_PostLog(HWND hNotify, const WCHAR *tag, const WCHAR *text)
         if (tagCopy) HeapFree(GetProcessHeap(), 0, tagCopy);
         if (textCopy) HeapFree(GetProcessHeap(), 0, textCopy);
     }
+}
+
+/* Set the signal change callback */
+void Serial_SetSignalCallback(SERIAL_CTX *ctx, SERIAL_SIGNAL_CB cb)
+{
+    if (ctx)
+        ctx->onSignal = cb;
+}
+
+/* Set or clear DTR signal */
+BOOL Serial_SetDtr(SERIAL_CTX *ctx, BOOL state)
+{
+    if (!ctx || ctx->hPort == INVALID_HANDLE_VALUE || ctx->hPort == NULL)
+        return FALSE;
+
+    return EscapeCommFunction(ctx->hPort, state ? SETDTR : CLRDTR);
+}
+
+/* Set or clear RTS signal */
+BOOL Serial_SetRts(SERIAL_CTX *ctx, BOOL state)
+{
+    if (!ctx || ctx->hPort == INVALID_HANDLE_VALUE || ctx->hPort == NULL)
+        return FALSE;
+
+    return EscapeCommFunction(ctx->hPort, state ? SETRTS : CLRRTS);
+}
+
+/* Change baud rate at runtime */
+BOOL Serial_SetBaudRate(SERIAL_CTX *ctx, DWORD baudRate)
+{
+    if (!ctx || ctx->hPort == INVALID_HANDLE_VALUE || ctx->hPort == NULL)
+        return FALSE;
+
+    DCB dcb = { .DCBlength = sizeof(DCB) };
+    if (!GetCommState(ctx->hPort, &dcb))
+        return FALSE;
+
+    dcb.BaudRate = baudRate;
+    return SetCommState(ctx->hPort, &dcb);
 }
