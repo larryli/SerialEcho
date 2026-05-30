@@ -37,7 +37,7 @@ static const char *TAG = "PROTO";
 void Protocol_Init(void)
 {
     srand((unsigned int)GetTickCount64());
-    TRACE_LOG(TAG, "Protocol module initialized");
+    TRACE_PROTO(TAG, "Protocol module initialized");
 }
 
 void Protocol_ProcessData(SERIAL_CTX *ctx, const BYTE *data, DWORD len, HWND hNotify)

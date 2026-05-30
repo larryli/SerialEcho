@@ -2,7 +2,7 @@
 
 本文档介绍如何基于 SerialEcho 框架开发自定义串口设备模拟器。
 
-## 项目架构
+## 架构概览
 
 ```
 ┌─────────────┐     ┌─────────────┐          ┌─────────────┐
@@ -11,262 +11,325 @@
 └─────────────┘     └─────────────┘          └─────────────┘
 ```
 
-- **main.c**: 用户界面，注册协议回调，处理菜单/工具栏命令，显示日志
-- **serial.c**: 串口通信，管理端口开关、数据收发，通过回调通知协议层
-- **protocol.c**: 协议处理，实现回调函数，决定如何响应接收的数据
+| 模块 | 职责 |
+|------|------|
+| `main.c` | 用户界面，注册协议回调，显示日志 |
+| `serial.c` | 串口通信，数据收发，信号控制 |
+| `protocol.c` | 协议处理，响应接收数据 |
 
-## 协议回调机制
+## 快速开始
 
-serial.c 通过函数指针回调通知协议层接收数据，解耦通信层和协议层。
-
-### 回调类型
-
-```c
-typedef void (*SERIAL_RX_CB)(void *ctx, const BYTE *data, DWORD len, HWND hNotify);
-```
-
-### 注册回调
+### 1. 创建协议文件
 
 ```c
-// 在 gui.c GUI_OnConnect 中注册
-Serial_SetReceiveCallback(&g_serial, Protocol_ProcessData);
-```
+// src/my_protocol.h
+#ifndef MY_PROTOCOL_H
+#define MY_PROTOCOL_H
 
-## 协议处理扩展
-
-### 当前实现：ECHO 回环
-
-`protocol.c` 中的 `Protocol_ProcessData()` 实现了简单的回环测试：
-
-```c
-void Protocol_ProcessData(void *ctx, const BYTE *data, DWORD len, HWND hNotify)
-{
-    SERIAL_CTX *serial = (SERIAL_CTX *)ctx;
-    if (!serial || !data || len == 0) return;
-
-    BYTE *buf = (BYTE *)HeapAlloc(GetProcessHeap(), 0, len);
-    if (!buf) return;
-
-    CopyMemory(buf, data, len);
-    Serial_WriteData(serial, buf, len, hNotify);
-    HeapFree(GetProcessHeap(), 0, buf);
-}
-```
-
-### 自定义协议步骤
-
-1. 创建 `src/my_protocol.c` 和 `src/my_protocol.h`
-2. 实现回调函数（匹配 `SERIAL_RX_CB` 签名）
-3. 在 `gui.c` 中注册你的回调
-4. 在 `CMakeLists.txt` 中添加源文件
-
-### 自定义协议示例
-
-```c
-// my_protocol.c
 #include "serial.h"
 
-static int g_temperature = 25;
+void MyProtocol_Init(void);
+void MyProtocol_OnData(SERIAL_CTX *ctx, const BYTE *data, DWORD len, HWND hNotify);
+void MyProtocol_OnSignal(SERIAL_CTX *ctx, DWORD modemStatus, HWND hNotify);
 
-void MyProtocol_ProcessData(void *ctx, const BYTE *data, DWORD len, HWND hNotify)
+#endif
+```
+
+```c
+// src/my_protocol.c
+#include "my_protocol.h"
+#include "utils/trace.h"
+
+static const char *TAG = "MY";
+
+void MyProtocol_Init(void)
 {
-    SERIAL_CTX *serial = (SERIAL_CTX *)ctx;
-    if (!serial || !data || len == 0) return;
+    TRACE_PROTO(TAG, "Protocol initialized");
+}
 
-    switch (data[0]) {
-    case 0x01:  // Query temperature
-    {
-        BYTE *resp = (BYTE *)HeapAlloc(GetProcessHeap(), 0, 2);
-        if (resp) {
-            resp[0] = 0x01;
-            resp[1] = (BYTE)g_temperature;
-            Serial_WriteData(serial, resp, 2, hNotify);
-            HeapFree(GetProcessHeap(), 0, resp);
-        }
-        break;
+void MyProtocol_OnData(SERIAL_CTX *ctx, const BYTE *data, DWORD len, HWND hNotify)
+{
+    if (!ctx || !data || len == 0) return;
+
+    // ECHO: send received data back
+    BYTE *buf = (BYTE *)HeapAlloc(GetProcessHeap(), 0, len);
+    if (buf) {
+        CopyMemory(buf, data, len);
+        Serial_WriteData(ctx, buf, len, hNotify);
+        HeapFree(GetProcessHeap(), 0, buf);
     }
-    case 0x02:  // Set temperature
-        if (len >= 2) g_temperature = data[1];
-        break;
-    }
+}
+
+void MyProtocol_OnSignal(SERIAL_CTX *ctx, DWORD modemStatus, HWND hNotify)
+{
+    BOOL dsr = (modemStatus & MS_DSR_ON) != 0;
+    BOOL cts = (modemStatus & MS_CTS_ON) != 0;
+
+    TRACE_PROTO(TAG, "Signal: DSR=%d CTS=%d", dsr, cts);
 }
 ```
 
-### 注册自定义协议
+### 2. 注册回调
 
 ```c
-// gui.c - GUI_OnConnect()
-Serial_SetReceiveCallback(&g_serial, MyProtocol_ProcessData);
+// main.c - Main_OnConnect()
+#include "my_protocol.h"
+
+Serial_SetReceiveCallback(&g_serial, (SERIAL_RX_CB)MyProtocol_OnData);
+Serial_SetSignalCallback(&g_serial, (SERIAL_SIGNAL_CB)MyProtocol_OnSignal);
 ```
 
-## 主动发送数据
+### 3. 更新构建
 
-### 使用 Serial_WriteData()
+```cmake
+# CMakeLists.txt
+add_executable(SerialEcho WIN32
+    src/main.c
+    src/serial.c
+    src/my_protocol.c  # 添加
+    ...
+)
+```
+
+## 回调机制
+
+### 数据接收回调
+
+```c
+// 类型定义
+typedef void (*SERIAL_RX_CB)(void *ctx, const BYTE *data, DWORD len, HWND hNotify);
+
+// 注册（main.c 中）
+Serial_SetReceiveCallback(&g_serial, (SERIAL_RX_CB)MyProtocol_OnData);
+
+// 实现（协议层）
+void MyProtocol_OnData(SERIAL_CTX *ctx, const BYTE *data, DWORD len, HWND hNotify)
+{
+    // ctx: 串口上下文，可用于 Serial_WriteData
+    // data: 接收数据
+    // len: 数据长度
+    // hNotify: UI 窗口句柄
+}
+```
+
+### 信号变化回调
+
+```c
+// 类型定义
+typedef void (*SERIAL_SIGNAL_CB)(void *ctx, DWORD modemStatus, HWND hNotify);
+
+// 注册
+Serial_SetSignalCallback(&g_serial, (SERIAL_SIGNAL_CB)MyProtocol_OnSignal);
+
+// 实现
+void MyProtocol_OnSignal(SERIAL_CTX *ctx, DWORD modemStatus, HWND hNotify)
+{
+    BOOL dsr = (modemStatus & MS_DSR_ON) != 0;  // 主机 DTR 状态
+    BOOL cts = (modemStatus & MS_CTS_ON) != 0;  // 主机 RTS 状态
+}
+```
+
+**注意：** 回调函数签名使用 `SERIAL_CTX *`，注册时需要类型转换 `(SERIAL_RX_CB)`。
+
+## 数据发送
+
+### 直接发送
 
 ```c
 BYTE data[] = {0xAA, 0x55, 0x01, 0x02};
-Serial_WriteData(&g_serial, data, sizeof(data), hWnd);
+Serial_WriteData(ctx, data, sizeof(data), hNotify);
 ```
 
-### 定时发送（心跳包）
-
-```c
-#define IDT_HEARTBEAT 1001
-
-// WM_CREATE
-SetTimer(hWnd, IDT_HEARTBEAT, 5000, NULL);
-
-// WM_TIMER
-if (wParam == IDT_HEARTBEAT && Serial_IsOpen(&g_serial)) {
-    BYTE hb[] = {0xAA, 0x55};
-    Serial_WriteData(&g_serial, hb, sizeof(hb), hWnd);
-}
-
-// WM_DESTROY
-KillTimer(hWnd, IDT_HEARTBEAT);
-```
-
-## 添加新功能模块
-
-1. 创建 `src/mymodule.c` 和 `src/mymodule.h`
-2. 在 `CMakeLists.txt` 中添加源文件
-3. 在 `gui.c` 中集成你的模块
-
-## 消息定义
-
-| 消息 | 用途 | wParam | lParam |
-|------|------|--------|--------|
-| WM_SERIAL_RX | RX 数据到达 | 数据长度 | 数据指针 (HeapAlloc) |
-| WM_SERIAL_TX | TX 数据已发送 | 数据长度 | 数据指针 (HeapAlloc) |
-| WM_SERIAL_ERROR | 连接错误 | 错误代码 | 0 |
-| WM_SERIAL_LOG | 自定义日志 | WCHAR* tag | WCHAR* text |
-| WM_SERIAL_SIGNAL | 信号变化 | modemStatus | 0 |
-| WM_SERIAL_CONFIG | 配置变更 | 保留 | 0 |
-
-接收 WM_SERIAL_RX/TX 的数据指针需要 HeapFree 释放。
-接收 WM_SERIAL_LOG 的 tag/text 指针需要 HeapFree 释放。
-
-## 内存管理规则
-
-1. **回调函数**: 使用 `HeapAlloc` 分配响应缓冲区，发送后 `HeapFree`
-2. **Serial_WriteData**: 内部复制数据用于 TX 通知，不影响传入的缓冲区
-3. **PostMessage**: 接收端负责释放 lParam 指向的内存
-
-## 配置持久化
-
-协议层可使用 `config.h` 提供的通用接口保存/加载配置：
-
-```c
-#include "utils/config.h"
-
-// 字符串
-Config_SetString(L"Protocol", L"Mode", L"Normal");
-WCHAR mode[32];
-Config_GetString(L"Protocol", L"Mode", mode, 32, L"Normal");
-
-// 整数
-Config_SetInt(L"Protocol", L"Timeout", 5000);
-int timeout = Config_GetInt(L"Protocol", L"Timeout", 5000);
-
-// 布尔值
-Config_SetBool(L"Protocol", L"AutoReconnect", TRUE);
-BOOL autoReconnect = Config_GetBool(L"Protocol", L"AutoReconnect", TRUE);
-```
-
-配置保存在 `SerialEcho.ini` 文件中，与可执行文件同目录。
-
-## 定时器工具
-
-协议层可使用 `timer.h` 提供的定时器接口实现超时处理：
+### 定时发送
 
 ```c
 #include "utils/timer.h"
 
-// 创建定时器
-TIMER_CTX *timer = Timer_Create();
+static TIMER_CTX *g_timer = NULL;
 
-// 启动一次性定时器（5秒超时）
-Timer_Start(timer, 5000, MyTimeoutCallback, userData);
-
-// 取消定时器
-Timer_Cancel(timer);
-
-// 销毁定时器
-Timer_Destroy(timer);
-```
-
-### 定时器回调
-
-```c
-void MyTimeoutCallback(void *userData)
+void StartHeartbeat(SERIAL_CTX *ctx)
 {
-    // 注意：回调在工作线程中执行，不是 UI 线程
-    // 如需操作 UI，请使用 PostMessage
+    g_timer = Timer_Create();
+    Timer_Start(g_timer, 5000, OnHeartbeat, ctx);
+}
+
+void OnHeartbeat(void *userData)
+{
     SERIAL_CTX *ctx = (SERIAL_CTX *)userData;
-    Serial_PostLog(ctx->hNotify, L"TIMEOUT", L"Response timeout");
+    BYTE hb[] = {0xAA, 0x55};
+    Serial_WriteData(ctx, hb, sizeof(hb), ctx->hNotify);
+}
+
+void StopHeartbeat(void)
+{
+    Timer_Destroy(g_timer);
+    g_timer = NULL;
 }
 ```
 
-## 编译调试
+## 信号控制
+
+```c
+// 读取当前信号状态
+DWORD baudRate;
+BYTE dataBits, parity, stopBits;
+Serial_GetConfig(ctx, &baudRate, &dataBits, &parity, &stopBits);
+
+// 控制输出信号
+Serial_SetDtr(ctx, TRUE);   // DTR 置高
+Serial_SetRts(ctx, FALSE);  // RTS 置低
+
+// 修改串口参数
+Serial_SetBaudRate(ctx, CBR_921600);
+```
+
+## 配置持久化
+
+使用 `config.h` 接口保存/加载配置，存储在 `SerialEcho.ini`：
+
+```c
+#include "utils/config.h"
+
+// 保存
+Config_SetString(L"MyProtocol", L"Mode", L"Normal");
+Config_SetInt(L"MyProtocol", L"Timeout", 5000);
+Config_SetBool(L"MyProtocol", L"AutoReply", TRUE);
+
+// 加载（第三个参数为默认值）
+WCHAR mode[32];
+Config_GetString(L"MyProtocol", L"Mode", mode, 32, L"Normal");
+int timeout = Config_GetInt(L"MyProtocol", L"Timeout", 3000);
+BOOL autoReply = Config_GetBool(L"MyProtocol", L"AutoReply", FALSE);
+```
+
+## 调试日志
+
+### 启用日志
 
 ```powershell
-# Debug build with trace logging
-cmake .. -G "NMake Makefiles" -DCMAKE_BUILD_TYPE=Debug -DENABLE_TRACE=ON
-cmake --build .
+cmake .. -DENABLE_TRACE_PROTO=ON   # 协议日志
+cmake .. -DENABLE_TRACE_FW=ON      # 框架日志
+```
 
-# Check trace.log for debug output
+### 使用日志宏
+
+```c
+#include "utils/trace.h"
+
+static const char *TAG = "MY";
+
+TRACE_PROTO(TAG, "Received %lu bytes", len);
+TRACE_PROTO(TAG, "Command: 0x%02X", data[0]);
+```
+
+### 自定义日志输出到主窗口
+
+```c
+Serial_PostLog(hNotify, L"MY", L"Custom message displayed in orange");
+```
+
+## 完整示例
+
+```c
+// my_protocol.c - 自定义协议示例
+#include "serial.h"
+#include "utils/trace.h"
+#include "utils/config.h"
+
+static const char *TAG = "MY";
+
+static int g_mode = 0;
+
+void MyProtocol_Init(void)
+{
+    g_mode = Config_GetInt(L"MyProtocol", L"Mode", 0);
+    TRACE_PROTO(TAG, "Protocol initialized, mode=%d", g_mode);
+}
+
+void MyProtocol_OnData(SERIAL_CTX *ctx, const BYTE *data, DWORD len, HWND hNotify)
+{
+    if (!ctx || !data || len == 0) return;
+
+    TRACE_PROTO(TAG, "Received %lu bytes", len);
+
+    // 根据命令类型处理
+    switch (data[0]) {
+    case 0x01:  // 查询命令
+    {
+        BYTE resp[4] = {0x01, 0x00, (BYTE)g_mode, 0x00};
+        Serial_WriteData(ctx, resp, sizeof(resp), hNotify);
+        break;
+    }
+    case 0x02:  // 设置命令
+        if (len >= 2) {
+            g_mode = data[1];
+            Config_SetInt(L"MyProtocol", L"Mode", g_mode);
+            BYTE ack[] = {0x02, 0x01};  // ACK
+            Serial_WriteData(ctx, ack, sizeof(ack), hNotify);
+        }
+        break;
+    default:    // ECHO
+        Serial_WriteData(ctx, data, len, hNotify);
+        break;
+    }
+}
+
+void MyProtocol_OnSignal(SERIAL_CTX *ctx, DWORD modemStatus, HWND hNotify)
+{
+    BOOL dsr = (modemStatus & MS_DSR_ON) != 0;
+    BOOL cts = (modemStatus & MS_CTS_ON) != 0;
+
+    TRACE_PROTO(TAG, "Signal: DSR=%d CTS=%d", dsr, cts);
+
+    if (dsr && cts) {
+        TRACE_PROTO(TAG, "Host ready");
+    }
+}
 ```
 
 ## API 参考
 
-### serial.h
+### serial.h - 串口通信
 
 | 函数 | 说明 |
 |------|------|
-| `Serial_EnumPorts()` | 枚举可用串口 |
-| `Serial_Open()` | 打开串口 |
-| `Serial_Close()` | 关闭串口 |
-| `Serial_IsOpen()` | 检查连接状态 |
-| `Serial_WriteData()` | 写入数据 |
-| `Serial_SetReceiveCallback()` | 设置接收回调 |
-| `Serial_SetSignalCallback()` | 设置信号变化回调 |
-| `Serial_SetDtr()` | 设置/清除 DTR |
-| `Serial_SetRts()` | 设置/清除 RTS |
-| `Serial_SetBaudRate()` | 修改波特率 |
-| `Serial_GetRxBytes()` | 获取接收字节数 |
-| `Serial_GetTxBytes()` | 获取发送字节数 |
-| `Serial_PostLog()` | 发送日志到 UI |
+| `Serial_Open(ctx, portName, hNotify)` | 打开串口 |
+| `Serial_Close(ctx)` | 关闭串口 |
+| `Serial_IsOpen(ctx)` | 检查连接状态 |
+| `Serial_WriteData(ctx, data, len, hNotify)` | 写入数据 |
+| `Serial_SetReceiveCallback(ctx, cb)` | 设置数据接收回调 |
+| `Serial_SetSignalCallback(ctx, cb)` | 设置信号变化回调 |
+| `Serial_SetDtr(ctx, state)` | 设置 DTR |
+| `Serial_SetRts(ctx, state)` | 设置 RTS |
+| `Serial_SetBaudRate(ctx, baudRate)` | 修改波特率 |
+| `Serial_SetDataBits(ctx, bits)` | 修改数据位 |
+| `Serial_SetParity(ctx, parity)` | 修改校验 |
+| `Serial_SetStopBits(ctx, bits)` | 修改停止位 |
+| `Serial_GetConfig(ctx, ...)` | 读取当前配置 |
+| `Serial_PostLog(hNotify, tag, text)` | 发送自定义日志 |
 
-### config.h
-
-| 函数 | 说明 |
-|------|------|
-| `Config_Init()` | 初始化配置模块 |
-| `Config_GetFont()` | 获取字体设置 |
-| `Config_SetFont()` | 保存字体设置 |
-| `Config_GetLastPort()` | 获取上次连接的端口 |
-| `Config_SetLastPort()` | 保存最后连接的端口 |
-| `Config_GetString()` | 获取字符串值 |
-| `Config_SetString()` | 保存字符串值 |
-| `Config_GetInt()` | 获取整数值 |
-| `Config_SetInt()` | 保存整数值 |
-| `Config_GetBool()` | 获取布尔值 |
-| `Config_SetBool()` | 保存布尔值 |
-
-### timer.h
+### config.h - 配置持久化
 
 | 函数 | 说明 |
 |------|------|
-| `Timer_Create()` | 创建定时器上下文 |
-| `Timer_Destroy()` | 销毁定时器 |
-| `Timer_Start()` | 启动一次性定时器 |
-| `Timer_Cancel()` | 取消运行中的定时器 |
-| `Timer_IsRunning()` | 检查定时器是否运行中 |
+| `Config_GetString/SetString` | 字符串读写 |
+| `Config_GetInt/SetInt` | 整数读写 |
+| `Config_GetBool/SetBool` | 布尔读写 |
+| `Config_GetFont/SetFont` | 字体设置 |
+| `Config_GetLastPort/SetLastPort` | 最后连接端口 |
 
-### protocol.h
+### timer.h - 定时器
 
 | 函数 | 说明 |
 |------|------|
-| `Protocol_Init()` | 初始化协议模块 |
-| `Protocol_ProcessData()` | ECHO 回调实现 |
-| `Protocol_SendPing()` | 发送随机测试数据 |
+| `Timer_Create()` | 创建定时器 |
+| `Timer_Destroy(ctx)` | 销毁定时器 |
+| `Timer_Start(ctx, ms, cb, data)` | 启动一次性定时器 |
+| `Timer_Cancel(ctx)` | 取消定时器 |
+
+### trace.h - 调试日志
+
+| 宏 | 说明 |
+|-----|------|
+| `TRACE_FW(tag, ...)` | 框架日志 |
+| `TRACE_PROTO(tag, ...)` | 协议日志 |

@@ -28,17 +28,17 @@ static DWORD WINAPI Timer_ThreadProc(LPVOID param)
     TIMER_CTX *ctx = (TIMER_CTX *)param;
     HANDLE handles[2] = { ctx->hTimer, ctx->hShutdownEvent };
 
-    TRACE_LOG(TAG, "Timer thread started");
+    TRACE_FW(TAG, "Timer thread started");
 
     /* Wait for either timer signal or shutdown */
     DWORD result = WaitForMultipleObjects(2, handles, FALSE, INFINITE);
 
     if (result == WAIT_OBJECT_0 && ctx->bRunning && ctx->callback) {
-        TRACE_LOG(TAG, "Timer fired, calling callback");
+        TRACE_FW(TAG, "Timer fired, calling callback");
         ctx->callback(ctx->userData);
     }
 
-    TRACE_LOG(TAG, "Timer thread exiting");
+    TRACE_FW(TAG, "Timer thread exiting");
     return 0;
 }
 
@@ -51,14 +51,14 @@ TIMER_CTX *Timer_Create(void)
 
     ctx->hTimer = CreateWaitableTimerW(NULL, TRUE, NULL);
     if (!ctx->hTimer) {
-        TRACE_LOG(TAG, "ERROR: CreateWaitableTimer failed: %lu", GetLastError());
+        TRACE_FW(TAG, "ERROR: CreateWaitableTimer failed: %lu", GetLastError());
         HeapFree(GetProcessHeap(), 0, ctx);
         return NULL;
     }
 
     ctx->hShutdownEvent = CreateEventW(NULL, TRUE, FALSE, NULL);
     if (!ctx->hShutdownEvent) {
-        TRACE_LOG(TAG, "ERROR: CreateEvent failed: %lu", GetLastError());
+        TRACE_FW(TAG, "ERROR: CreateEvent failed: %lu", GetLastError());
         CloseHandle(ctx->hTimer);
         HeapFree(GetProcessHeap(), 0, ctx);
         return NULL;
@@ -69,7 +69,7 @@ TIMER_CTX *Timer_Create(void)
     ctx->callback = NULL;
     ctx->userData = NULL;
 
-    TRACE_LOG(TAG, "Timer context created");
+    TRACE_FW(TAG, "Timer context created");
     return ctx;
 }
 
@@ -92,7 +92,7 @@ void Timer_Destroy(TIMER_CTX *ctx)
     }
 
     HeapFree(GetProcessHeap(), 0, ctx);
-    TRACE_LOG(TAG, "Timer context destroyed");
+    TRACE_FW(TAG, "Timer context destroyed");
 }
 
 /* Start a one-shot timer */
@@ -114,7 +114,7 @@ BOOL Timer_Start(TIMER_CTX *ctx, DWORD timeoutMs, TIMER_CB cb, void *userData)
     /* Start worker thread */
     ctx->hThread = CreateThread(NULL, 0, Timer_ThreadProc, ctx, 0, NULL);
     if (!ctx->hThread) {
-        TRACE_LOG(TAG, "ERROR: CreateThread failed: %lu", GetLastError());
+        TRACE_FW(TAG, "ERROR: CreateThread failed: %lu", GetLastError());
         ctx->bRunning = FALSE;
         return FALSE;
     }
@@ -124,12 +124,12 @@ BOOL Timer_Start(TIMER_CTX *ctx, DWORD timeoutMs, TIMER_CB cb, void *userData)
     dueTime.QuadPart = -(LONGLONG)timeoutMs * 10000;  /* Convert to 100ns units (negative = relative) */
 
     if (!SetWaitableTimer(ctx->hTimer, &dueTime, 0, NULL, NULL, FALSE)) {
-        TRACE_LOG(TAG, "ERROR: SetWaitableTimer failed: %lu", GetLastError());
+        TRACE_FW(TAG, "ERROR: SetWaitableTimer failed: %lu", GetLastError());
         Timer_Cancel(ctx);
         return FALSE;
     }
 
-    TRACE_LOG(TAG, "Timer started: %lu ms", timeoutMs);
+    TRACE_FW(TAG, "Timer started: %lu ms", timeoutMs);
     return TRUE;
 }
 
@@ -156,7 +156,7 @@ void Timer_Cancel(TIMER_CTX *ctx)
 
         ctx->callback = NULL;
         ctx->userData = NULL;
-        TRACE_LOG(TAG, "Timer cancelled");
+        TRACE_FW(TAG, "Timer cancelled");
     }
 }
 

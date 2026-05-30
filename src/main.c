@@ -355,23 +355,23 @@ static void Main_AppendSignalLog(const WCHAR *tag, const WCHAR *text, COLORREF t
 /* Handle Connect command */
 static void Main_OnConnect(HWND hMainWnd)
 {
-    TRACE_LOG(TAG, "Main_OnConnect called");
+    TRACE_FW(TAG, "Main_OnConnect called");
 
     if (Serial_IsOpen(&g_serial)) {
-        TRACE_LOG(TAG, "Port already open");
+        TRACE_FW(TAG, "Port already open");
         return;
     }
 
     if (!ShowPortSelectDialog(hMainWnd)) {
-        TRACE_LOG(TAG, "Port selection cancelled");
+        TRACE_FW(TAG, "Port selection cancelled");
         return;
     }
 
-    TRACE_LOG(TAG, "Selected port: %s", g_szPort);
-    TRACE_LOG(TAG, "Calling Serial_Open...");
+    TRACE_FW(TAG, "Selected port: %s", g_szPort);
+    TRACE_FW(TAG, "Calling Serial_Open...");
 
     if (!Serial_Open(&g_serial, g_szPort, hMainWnd)) {
-        TRACE_LOG(TAG, "ERROR: Serial_Open failed");
+        TRACE_FW(TAG, "ERROR: Serial_Open failed");
         MessageBoxW(hMainWnd, LoadStr(IDS_MSG_PORT_ERROR), LoadStr(IDS_MSG_ERROR), MB_OK | MB_ICONERROR);
         return;
     }
@@ -379,7 +379,7 @@ static void Main_OnConnect(HWND hMainWnd)
     /* Register protocol callback */
     Serial_SetReceiveCallback(&g_serial, (SERIAL_RX_CB)Protocol_ProcessData);
 
-    TRACE_LOG(TAG, "Serial_Open succeeded");
+    TRACE_FW(TAG, "Serial_Open succeeded");
 
     /* Save last connected port */
     Config_SetLastPort(g_szPort);
@@ -392,7 +392,7 @@ static void Main_OnConnect(HWND hMainWnd)
     UpdateStatusBar();
     SetFocus(g_hEdit);
 
-    TRACE_LOG(TAG, "Main_OnConnect completed");
+    TRACE_FW(TAG, "Main_OnConnect completed");
 }
 
 /* Handle Disconnect command */
@@ -777,7 +777,7 @@ static LRESULT CALLBACK MainWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM l
 
     case WM_SERIAL_ERROR:
         /* Connection lost notification from listener thread */
-        TRACE_LOG(TAG, "Connection lost, error code: %lu", (DWORD)wParam);
+        TRACE_FW(TAG, "Connection lost, error code: %lu", (DWORD)wParam);
         Serial_Close(&g_serial);
         UpdateTitle(hWnd);
         UpdateMenuState(hWnd);
@@ -859,7 +859,7 @@ static LRESULT CALLBACK MainWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM l
         if (wParam == DBT_DEVICEREMOVECOMPLETE && Serial_IsOpen(&g_serial)) {
             PDEV_BROADCAST_HDR pHdr = (PDEV_BROADCAST_HDR)lParam;
             if (pHdr && pHdr->dbch_devicetype == DBT_DEVTYP_DEVICEINTERFACE) {
-                TRACE_LOG(TAG, "Device removed, disconnecting");
+                TRACE_FW(TAG, "Device removed, disconnecting");
                 Serial_Close(&g_serial);
                 UpdateTitle(hWnd);
                 UpdateMenuState(hWnd);
@@ -949,14 +949,14 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPWSTR lpCmdLi
     (void)nCmdShow;
 
     TRACE_INIT();
-    TRACE_LOG(TAG, "=== SerialEcho Started ===");
+    TRACE_FW(TAG, "=== SerialEcho Started ===");
 
     /* Initialize configuration */
     Config_Init();
 
     /* Initialize GUI subsystem */
     if (!Main_Init(hInstance)) {
-        TRACE_LOG(TAG, "ERROR: Main_Init failed");
+        TRACE_FW(TAG, "ERROR: Main_Init failed");
         TRACE_CLOSE();
         return 1;
     }
@@ -964,12 +964,12 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPWSTR lpCmdLi
     /* Create main application window */
     HWND hWnd = Main_CreateWindow(hInstance);
     if (!hWnd) {
-        TRACE_LOG(TAG, "ERROR: Main_CreateWindow failed");
+        TRACE_FW(TAG, "ERROR: Main_CreateWindow failed");
         TRACE_CLOSE();
         return 1;
     }
 
-    TRACE_LOG(TAG, "Main window created: %p", hWnd);
+    TRACE_FW(TAG, "Main window created: %p", hWnd);
 
     /* Main message loop */
     MSG msg;
@@ -978,7 +978,7 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPWSTR lpCmdLi
         DispatchMessage(&msg);
     }
 
-    TRACE_LOG(TAG, "=== SerialEcho Exiting ===");
+    TRACE_FW(TAG, "=== SerialEcho Exiting ===");
     TRACE_CLOSE();
 
     return (int)msg.wParam;

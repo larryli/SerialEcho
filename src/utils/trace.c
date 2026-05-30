@@ -2,7 +2,7 @@
  * trace.c - Trace logging utility implementation
  */
 
-#ifdef ENABLE_TRACE
+#if defined(ENABLE_TRACE_FW) || defined(ENABLE_TRACE_PROTO)
 
 #include "trace.h"
 #include <wchar.h>
@@ -76,4 +76,4 @@ void Trace_Write(const char *tag, const char *fmt, ...)
     LeaveCriticalSection(&g_csTrace);
 }
 
-#endif /* ENABLE_TRACE */
+#endif /* ENABLE_TRACE_FW || ENABLE_TRACE_PROTO */

@@ -3,7 +3,7 @@
 # Requires: CMake 3.20+, MSVC compiler
 # Build (Release): mkdir build && cd build && cmake .. -G "NMake Makefiles" && cmake --build .
 # Build (Debug):   mkdir build && cd build && cmake .. -G "NMake Makefiles" -DCMAKE_BUILD_TYPE=Debug && cmake --build .
-# Build (Trace):   mkdir build && cd build && cmake .. -G "NMake Makefiles" -DENABLE_TRACE=ON && cmake --build .
+# Build (Trace):   mkdir build && cd build && cmake .. -G "NMake Makefiles" -DENABLE_TRACE_FW=ON -DENABLE_TRACE_PROTO=ON && cmake --build .
 
 cmake_minimum_required(VERSION 3.20)
 project(SerialEcho C)
@@ -50,9 +50,16 @@ target_compile_definitions(SerialEcho PRIVATE
     _CRT_SECURE_NO_WARNINGS
 )
 
-# Trace logging option
-option(ENABLE_TRACE "Enable trace logging to trace.log" OFF)
-if(ENABLE_TRACE)
-    target_compile_definitions(SerialEcho PRIVATE ENABLE_TRACE=1)
-    message(STATUS "Trace logging enabled")
+# Trace logging options (enable one or both)
+option(ENABLE_TRACE_FW "Enable framework trace logging" OFF)
+option(ENABLE_TRACE_PROTO "Enable protocol trace logging" OFF)
+
+if(ENABLE_TRACE_FW)
+    target_compile_definitions(SerialEcho PRIVATE ENABLE_TRACE_FW=1)
+    message(STATUS "Framework trace enabled")
+endif()
+
+if(ENABLE_TRACE_PROTO)
+    target_compile_definitions(SerialEcho PRIVATE ENABLE_TRACE_PROTO=1)
+    message(STATUS "Protocol trace enabled")
 endif()

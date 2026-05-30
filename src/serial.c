@@ -108,16 +108,16 @@ static DWORD WINAPI Listener_Proc(LPVOID param)
     HANDLE hReadEvent = CreateEvent(NULL, TRUE, FALSE, NULL);
     BOOL errorExit = FALSE;
 
-    TRACE_LOG(TAG, "Listener started");
+    TRACE_FW(TAG, "Listener started");
 
     if (!hReadEvent) {
-        TRACE_LOG(TAG, "ERROR: Failed to create event");
+        TRACE_FW(TAG, "ERROR: Failed to create event");
         return 1;
     }
 
     ov.hEvent = CreateEvent(NULL, TRUE, FALSE, NULL);
     if (!ov.hEvent) {
-        TRACE_LOG(TAG, "ERROR: Failed to create ov.hEvent");
+        TRACE_FW(TAG, "ERROR: Failed to create ov.hEvent");
         CloseHandle(hReadEvent);
         return 1;
     }
@@ -152,7 +152,7 @@ static DWORD WINAPI Listener_Proc(LPVOID param)
                 /* Normal shutdown via CancelIo */
                 break;
             } else {
-                TRACE_LOG(TAG, "ERROR: WaitCommEvent failed: %lu", GetLastError());
+                TRACE_FW(TAG, "ERROR: WaitCommEvent failed: %lu", GetLastError());
                 errorExit = TRUE;
                 break;
             }
@@ -199,7 +199,7 @@ static DWORD WINAPI Listener_Proc(LPVOID param)
                         if (copy) {
                             CopyMemory(copy, buffer, bytesRead);
                             if (!PostMessage(ctx->hNotify, WM_SERIAL_RX, (WPARAM)bytesRead, (LPARAM)copy)) {
-                                TRACE_LOG(TAG, "ERROR: PostMessage RX failed: %lu", GetLastError());
+                                TRACE_FW(TAG, "ERROR: PostMessage RX failed: %lu", GetLastError());
                                 HeapFree(GetProcessHeap(), 0, copy);
                             }
                         }
@@ -231,7 +231,7 @@ static DWORD WINAPI Listener_Proc(LPVOID param)
         if (dwEvtMask & EV_ERR) {
             DWORD dwErrors;
             ClearCommError(ctx->hPort, &dwErrors, NULL);
-            TRACE_LOG(TAG, "Comm error: 0x%08lX", dwErrors);
+            TRACE_FW(TAG, "Comm error: 0x%08lX", dwErrors);
         }
 
         /* Handle signal changes (DSR/CTS from host) */
@@ -250,7 +250,7 @@ static DWORD WINAPI Listener_Proc(LPVOID param)
         }
     }
 
-    TRACE_LOG(TAG, "Listener exiting (error=%d)", errorExit);
+    TRACE_FW(TAG, "Listener exiting (error=%d)", errorExit);
     CloseHandle(ov.hEvent);
     CloseHandle(hReadEvent);
 
@@ -268,7 +268,7 @@ static DWORD WINAPI Listener_Proc(LPVOID param)
  */
 BOOL Serial_Open(SERIAL_CTX *ctx, const WCHAR *portName, HWND hNotify)
 {
-    TRACE_LOG(TAG, "Opening port: %s", portName);
+    TRACE_FW(TAG, "Opening port: %s", portName);
 
     if (ctx->hPort != INVALID_HANDLE_VALUE && ctx->hPort != NULL)
         return FALSE;
@@ -286,7 +286,7 @@ BOOL Serial_Open(SERIAL_CTX *ctx, const WCHAR *portName, HWND hNotify)
     ctx->hPort = CreateFileW(fullPort, GENERIC_READ | GENERIC_WRITE, 0, NULL,
                              OPEN_EXISTING, FILE_FLAG_OVERLAPPED, NULL);
     if (ctx->hPort == INVALID_HANDLE_VALUE) {
-        TRACE_LOG(TAG, "ERROR: CreateFileW failed: %lu", GetLastError());
+        TRACE_FW(TAG, "ERROR: CreateFileW failed: %lu", GetLastError());
         CloseHandle(ctx->hStartEvent);
                 return FALSE;
     }
@@ -345,7 +345,7 @@ BOOL Serial_Open(SERIAL_CTX *ctx, const WCHAR *portName, HWND hNotify)
 
     ctx->hThread = CreateThread(NULL, 0, Listener_Proc, ctx, 0, NULL);
     if (!ctx->hThread) {
-        TRACE_LOG(TAG, "ERROR: CreateThread failed: %lu", GetLastError());
+        TRACE_FW(TAG, "ERROR: CreateThread failed: %lu", GetLastError());
         ctx->bRunning = FALSE;
         CloseHandle(ctx->hPort);
         ctx->hPort = INVALID_HANDLE_VALUE;
@@ -355,7 +355,7 @@ BOOL Serial_Open(SERIAL_CTX *ctx, const WCHAR *portName, HWND hNotify)
 
     /* Wait for thread to start */
     WaitForSingleObject(ctx->hStartEvent, 1000);
-    TRACE_LOG(TAG, "Port opened successfully");
+    TRACE_FW(TAG, "Port opened successfully");
 
     return TRUE;
 }
@@ -365,7 +365,7 @@ BOOL Serial_Open(SERIAL_CTX *ctx, const WCHAR *portName, HWND hNotify)
  */
 void Serial_Close(SERIAL_CTX *ctx)
 {
-    TRACE_LOG(TAG, "Closing port");
+    TRACE_FW(TAG, "Closing port");
 
     if (ctx->bRunning) {
         ctx->bRunning = FALSE;

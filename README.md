@@ -25,7 +25,8 @@ cmake --build .
 ```
 
 选项：
-- `-DENABLE_TRACE=ON` 启用调试日志
+- `-DENABLE_TRACE_FW=ON` 启用框架调试日志
+- `-DENABLE_TRACE_PROTO=ON` 启用协议调试日志
 - `-DCMAKE_BUILD_TYPE=Debug` 调试构建
 
 ## 使用
