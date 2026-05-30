@@ -147,4 +147,17 @@ BOOL Serial_GetConfig(SERIAL_CTX *ctx, DWORD *baudRate, BYTE *dataBits, BYTE *pa
  */
 void Serial_PostLog(HWND hNotify, const WCHAR *tag, const WCHAR *text);
 
+/*
+ * Serial_PostLogF - Post a formatted log message to the UI thread
+ *
+ * Like printf, formats the message before posting.
+ * Convenience wrapper around Serial_PostLog.
+ *
+ * @hNotify: Window handle
+ * @tag: Tag text (e.g. "MODBUS", "ESP")
+ * @fmt: Format string
+ * @...: Format arguments
+ */
+void Serial_PostLogF(HWND hNotify, const WCHAR *tag, const WCHAR *fmt, ...);
+
 #endif /* SERIAL_H */

@@ -501,6 +501,23 @@ void Serial_PostLog(HWND hNotify, const WCHAR *tag, const WCHAR *text)
     }
 }
 
+/* Post a formatted log message to the UI thread */
+#define LOGF_BUF_SIZE 4096
+
+void Serial_PostLogF(HWND hNotify, const WCHAR *tag, const WCHAR *fmt, ...)
+{
+    if (!hNotify || !tag || !fmt)
+        return;
+
+    WCHAR buf[LOGF_BUF_SIZE];
+    va_list args;
+    va_start(args, fmt);
+    wvsprintfW(buf, fmt, args);
+    va_end(args);
+
+    Serial_PostLog(hNotify, tag, buf);
+}
+
 /* Set the signal change callback */
 void Serial_SetSignalCallback(SERIAL_CTX *ctx, SERIAL_SIGNAL_CB cb)
 {

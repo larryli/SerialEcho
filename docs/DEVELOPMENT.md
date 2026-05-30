@@ -225,8 +225,15 @@ TRACE_PROTO(TAG, "Command: 0x%02X", data[0]);
 ### 自定义日志输出到主窗口
 
 ```c
-Serial_PostLog(hNotify, L"MY", L"Custom message displayed in orange");
+// 基础版本
+Serial_PostLog(hNotify, L"MODBUS", L"Frame received");
+
+// 格式化版本（更方便）
+Serial_PostLogF(hNotify, L"MODBUS", L"Received %lu bytes, CRC: 0x%04X", len, crc);
+Serial_PostLogF(hNotify, L"MODBUS", L"Register %d = %d", addr, value);
 ```
+
+日志以橙色显示，格式：`HH:MM:SS.mmm [TAG] Message`
 
 ## 完整示例
 
@@ -307,6 +314,7 @@ void MyProtocol_OnSignal(SERIAL_CTX *ctx, DWORD modemStatus, HWND hNotify)
 | `Serial_SetStopBits(ctx, bits)` | 修改停止位 |
 | `Serial_GetConfig(ctx, ...)` | 读取当前配置 |
 | `Serial_PostLog(hNotify, tag, text)` | 发送自定义日志 |
+| `Serial_PostLogF(hNotify, tag, fmt, ...)` | 发送格式化日志 |
 
 ### config.h - 配置持久化
 
