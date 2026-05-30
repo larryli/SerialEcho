@@ -2,6 +2,7 @@
  * config.h - Configuration file interface
  *
  * Provides functions for reading/writing INI configuration file.
+ * Generic functions allow protocol layer to store custom settings.
  */
 
 #ifndef CONFIG_H
@@ -40,5 +41,58 @@ BOOL Config_GetLastPort(WCHAR *portName, int maxLen);
  * @portName: Port name to save
  */
 void Config_SetLastPort(const WCHAR *portName);
+
+/*
+ * Config_GetString - Get string value from config
+ * @section: Section name
+ * @key: Key name
+ * @value: Buffer to receive value
+ * @maxLen: Buffer size in characters
+ * @defaultVal: Default value if key not found
+ * Returns: TRUE if value was loaded
+ */
+BOOL Config_GetString(const WCHAR *section, const WCHAR *key, WCHAR *value, int maxLen, const WCHAR *defaultVal);
+
+/*
+ * Config_SetString - Save string value to config
+ * @section: Section name
+ * @key: Key name
+ * @value: Value to save
+ */
+void Config_SetString(const WCHAR *section, const WCHAR *key, const WCHAR *value);
+
+/*
+ * Config_GetInt - Get integer value from config
+ * @section: Section name
+ * @key: Key name
+ * @defaultVal: Default value if key not found
+ * Returns: Integer value
+ */
+int Config_GetInt(const WCHAR *section, const WCHAR *key, int defaultVal);
+
+/*
+ * Config_SetInt - Save integer value to config
+ * @section: Section name
+ * @key: Key name
+ * @value: Value to save
+ */
+void Config_SetInt(const WCHAR *section, const WCHAR *key, int value);
+
+/*
+ * Config_GetBool - Get boolean value from config
+ * @section: Section name
+ * @key: Key name
+ * @defaultVal: Default value if key not found
+ * Returns: Boolean value
+ */
+BOOL Config_GetBool(const WCHAR *section, const WCHAR *key, BOOL defaultVal);
+
+/*
+ * Config_SetBool - Save boolean value to config
+ * @section: Section name
+ * @key: Key name
+ * @value: Value to save (TRUE/FALSE)
+ */
+void Config_SetBool(const WCHAR *section, const WCHAR *key, BOOL value);
 
 #endif /* CONFIG_H */

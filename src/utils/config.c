@@ -109,3 +109,68 @@ void Config_SetLastPort(const WCHAR *portName)
 
     WritePrivateProfileStringW(SECTION_PORT, KEY_LAST_PORT, portName, g_iniPath);
 }
+
+/*
+ * Config_GetString - Get string value from config
+ */
+BOOL Config_GetString(const WCHAR *section, const WCHAR *key, WCHAR *value, int maxLen, const WCHAR *defaultVal)
+{
+    if (!g_iniPath[0] || !section || !key || !value || maxLen <= 0)
+        return FALSE;
+
+    GetPrivateProfileStringW(section, key, defaultVal ? defaultVal : L"",
+                             value, maxLen, g_iniPath);
+
+    return (value[0] != L'\0');
+}
+
+/*
+ * Config_SetString - Save string value to config
+ */
+void Config_SetString(const WCHAR *section, const WCHAR *key, const WCHAR *value)
+{
+    if (!g_iniPath[0] || !section || !key)
+        return;
+
+    WritePrivateProfileStringW(section, key, value ? value : L"", g_iniPath);
+}
+
+/*
+ * Config_GetInt - Get integer value from config
+ */
+int Config_GetInt(const WCHAR *section, const WCHAR *key, int defaultVal)
+{
+    if (!g_iniPath[0] || !section || !key)
+        return defaultVal;
+
+    return (int)GetPrivateProfileIntW(section, key, defaultVal, g_iniPath);
+}
+
+/*
+ * Config_SetInt - Save integer value to config
+ */
+void Config_SetInt(const WCHAR *section, const WCHAR *key, int value)
+{
+    if (!g_iniPath[0] || !section || !key)
+        return;
+
+    WCHAR buf[32];
+    wsprintfW(buf, L"%d", value);
+    WritePrivateProfileStringW(section, key, buf, g_iniPath);
+}
+
+/*
+ * Config_GetBool - Get boolean value from config
+ */
+BOOL Config_GetBool(const WCHAR *section, const WCHAR *key, BOOL defaultVal)
+{
+    return Config_GetInt(section, key, defaultVal ? 1 : 0) != 0;
+}
+
+/*
+ * Config_SetBool - Save boolean value to config
+ */
+void Config_SetBool(const WCHAR *section, const WCHAR *key, BOOL value)
+{
+    Config_SetInt(section, key, value ? 1 : 0);
+}

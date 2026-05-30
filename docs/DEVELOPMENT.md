@@ -152,6 +152,29 @@ KillTimer(hWnd, IDT_HEARTBEAT);
 2. **Serial_WriteData**: 内部复制数据用于 TX 通知，不影响传入的缓冲区
 3. **PostMessage**: 接收端负责释放 lParam 指向的内存
 
+## 配置持久化
+
+协议层可使用 `config.h` 提供的通用接口保存/加载配置：
+
+```c
+#include "utils/config.h"
+
+// 字符串
+Config_SetString(L"Protocol", L"Mode", L"Normal");
+WCHAR mode[32];
+Config_GetString(L"Protocol", L"Mode", mode, 32, L"Normal");
+
+// 整数
+Config_SetInt(L"Protocol", L"Timeout", 5000);
+int timeout = Config_GetInt(L"Protocol", L"Timeout", 5000);
+
+// 布尔值
+Config_SetBool(L"Protocol", L"AutoReconnect", TRUE);
+BOOL autoReconnect = Config_GetBool(L"Protocol", L"AutoReconnect", TRUE);
+```
+
+配置保存在 `SerialEcho.ini` 文件中，与可执行文件同目录。
+
 ## 定时器工具
 
 协议层可使用 `timer.h` 提供的定时器接口实现超时处理：
@@ -213,6 +236,22 @@ cmake --build .
 | `Serial_GetRxBytes()` | 获取接收字节数 |
 | `Serial_GetTxBytes()` | 获取发送字节数 |
 | `Serial_PostLog()` | 发送日志到 UI |
+
+### config.h
+
+| 函数 | 说明 |
+|------|------|
+| `Config_Init()` | 初始化配置模块 |
+| `Config_GetFont()` | 获取字体设置 |
+| `Config_SetFont()` | 保存字体设置 |
+| `Config_GetLastPort()` | 获取上次连接的端口 |
+| `Config_SetLastPort()` | 保存最后连接的端口 |
+| `Config_GetString()` | 获取字符串值 |
+| `Config_SetString()` | 保存字符串值 |
+| `Config_GetInt()` | 获取整数值 |
+| `Config_SetInt()` | 保存整数值 |
+| `Config_GetBool()` | 获取布尔值 |
+| `Config_SetBool()` | 保存布尔值 |
 
 ### timer.h
 
