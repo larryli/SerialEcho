@@ -38,6 +38,34 @@ static const char *TAG = "GUI";
 /* Message size limit */
 #define MAX_MSG_SIZE        65536
 
+/* Log view batch update settings */
+#define LOG_FLUSH_TIMER_ID      1001
+#define LOG_FLUSH_INTERVAL_MS   50
+
+/* Log entry types */
+typedef enum {
+    LOG_TYPE_DATA,      /* RX/TX hex data */
+    LOG_TYPE_CUSTOM,    /* Custom text with tag */
+    LOG_TYPE_SIGNAL     /* Signal/config with colored tag */
+} LOG_ENTRY_TYPE;
+
+/* Log entry structure */
+typedef struct LOG_ENTRY {
+    struct LOG_ENTRY *next;     /* Next in linked list */
+    LOG_ENTRY_TYPE type;        /* Entry type */
+    COLORREF color1;            /* Primary color (direction or tag) */
+    COLORREF color2;            /* Secondary color (data or text) */
+    WCHAR *text;                /* Formatted text (dynamically allocated) */
+    int textLen;                /* Text length in characters */
+} LOG_ENTRY;
+
+/* Log buffer state */
+static LOG_ENTRY *g_logHead = NULL;
+static LOG_ENTRY *g_logTail = NULL;
+static int g_logCount = 0;
+static CRITICAL_SECTION g_logLock;
+static BOOL g_logInitialized = FALSE;
+
 /* Global state */
 static SERIAL_CTX g_serial = { .hPort = NULL, .hThread = NULL, .hStartEvent = NULL, .hNotify = NULL, .bRunning = FALSE };
 static HWND g_hToolbar = NULL;
@@ -225,133 +253,247 @@ static void AppendColoredText(HWND hEdit, const WCHAR *text, int len, COLORREF c
     SendMessageW(hEdit, EM_REPLACESEL, FALSE, (LPARAM)text);
 }
 
+/* Format current time as timestamp string */
+static int FormatTimestamp(WCHAR *buf, int maxLen)
+{
+    SYSTEMTIME st;
+    GetLocalTime(&st);
+    return wsprintfW(buf, L"%04d-%02d-%02d %02d:%02d:%02d.%03d ",
+                     st.wYear, st.wMonth, st.wDay,
+                     st.wHour, st.wMinute, st.wSecond, st.wMilliseconds);
+}
+
+/* Add entry to log buffer (thread-safe) */
+static void AddEntry(LOG_ENTRY *entry)
+{
+    EnterCriticalSection(&g_logLock);
+    
+    entry->next = NULL;
+    if (g_logTail) {
+        g_logTail->next = entry;
+    } else {
+        g_logHead = entry;
+    }
+    g_logTail = entry;
+    g_logCount++;
+    
+    LeaveCriticalSection(&g_logLock);
+}
+
+/* Remove all entries from buffer (thread-safe) */
+static LOG_ENTRY *RemoveAllEntries(void)
+{
+    EnterCriticalSection(&g_logLock);
+    
+    LOG_ENTRY *head = g_logHead;
+    g_logHead = NULL;
+    g_logTail = NULL;
+    g_logCount = 0;
+    
+    LeaveCriticalSection(&g_logLock);
+    return head;
+}
+
+/* Free a chain of log entries */
+static void FreeEntryChain(LOG_ENTRY *head)
+{
+    while (head) {
+        LOG_ENTRY *next = head->next;
+        if (head->text)
+            HeapFree(GetProcessHeap(), 0, head->text);
+        HeapFree(GetProcessHeap(), 0, head);
+        head = next;
+    }
+}
+
+/* Initialize log view subsystem */
+static void LogView_Init(HWND hWnd)
+{
+    if (g_logInitialized)
+        return;
+    
+    InitializeCriticalSection(&g_logLock);
+    g_logHead = NULL;
+    g_logTail = NULL;
+    g_logCount = 0;
+    g_logInitialized = TRUE;
+    
+    SetTimer(hWnd, LOG_FLUSH_TIMER_ID, LOG_FLUSH_INTERVAL_MS, NULL);
+}
+
+/* Forward declarations */
+static void LogView_FlushTimer(void);
+static void LogView_Flush(void);
+
+/* Shutdown log view subsystem */
+static void LogView_Close(void)
+{
+    if (!g_logInitialized)
+        return;
+    
+    if (g_hEdit)
+        KillTimer(GetParent(g_hEdit), LOG_FLUSH_TIMER_ID);
+    
+    LogView_Flush();
+    
+    DeleteCriticalSection(&g_logLock);
+    g_logInitialized = FALSE;
+}
+
+/* Flush buffered log entries to RichEdit */
+static void LogView_FlushTimer(void)
+{
+    if (!g_hEdit || g_logCount == 0)
+        return;
+    
+    LOG_ENTRY *head = RemoveAllEntries();
+    if (!head)
+        return;
+    
+    SendMessageW(g_hEdit, WM_SETREDRAW, FALSE, 0);
+    
+    LOG_ENTRY *entry = head;
+    while (entry) {
+        if (entry->text && entry->textLen > 0) {
+            AppendColoredText(g_hEdit, entry->text, entry->textLen, entry->color1);
+        }
+        entry = entry->next;
+    }
+    
+    SendMessageW(g_hEdit, WM_SETREDRAW, TRUE, 0);
+    InvalidateRect(g_hEdit, NULL, TRUE);
+    
+    int textLen = GetWindowTextLengthW(g_hEdit);
+    SendMessageW(g_hEdit, EM_SETSEL, textLen, textLen);
+    SendMessageW(g_hEdit, EM_SCROLLCARET, 0, 0);
+    
+    FreeEntryChain(head);
+}
+
+/* Flush all buffered log entries immediately */
+static void LogView_Flush(void)
+{
+    LogView_FlushTimer();
+}
+
 /* Format and append data to log display with colors */
 static void Main_AppendLog(HWND hMainWnd, const BYTE *data, DWORD len, int dir)
 {
     (void)hMainWnd;
-    if (!g_hEdit || len == 0)
+    if (!g_logInitialized || len == 0)
         return;
 
-    SYSTEMTIME st;
-    GetLocalTime(&st);
-
-    /* Build timestamp: "YYYY-MM-DD HH:MM:SS.mmm " */
-    WCHAR timestamp[32];
-    int tsLen = wsprintfW(timestamp, L"%04d-%02d-%02d %02d:%02d:%02d.%03d ",
-                          st.wYear, st.wMonth, st.wDay,
-                          st.wHour, st.wMinute, st.wSecond, st.wMilliseconds);
-
-    /* Build direction: "[RX] " or "[TX] " */
-    WCHAR direction[8];
-    int dirLen = wsprintfW(direction, L"[%s] ", (dir == DIR_RX) ? L"RX" : L"TX");
-    COLORREF dirColor = (dir == DIR_RX) ? COLOR_RX : COLOR_TX;
-
-    /* Calculate max line size for HEX data */
+    /* Build formatted text: timestamp + direction + hex data */
     DWORD numLines = (len + 15) / 16;
-    DWORD maxLineSize = (tsLen + dirLen + 50) * (numLines + 1) + (len * 4) + 64;
-    WCHAR *hexLine = (WCHAR *)HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, maxLineSize * sizeof(WCHAR));
-    if (!hexLine)
+    DWORD maxLineSize = 64 + 16 + (len * 4) + (numLines * 64) + 64;
+    WCHAR *buf = (WCHAR *)HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, maxLineSize * sizeof(WCHAR));
+    if (!buf)
         return;
 
     int pos = 0;
-    int prefixLen = tsLen + dirLen;
 
-    /* Format HEX data with grouping and line wrapping */
+    /* Timestamp */
+    pos += FormatTimestamp(buf + pos, maxLineSize - pos);
+
+    /* Direction */
+    pos += wsprintfW(buf + pos, L"[%s] ", (dir == DIR_RX) ? L"RX" : L"TX");
+
+    /* Hex data with grouping */
+    int prefixLen = pos;
     for (DWORD i = 0; i < len; i++) {
         if (i > 0 && i % 16 == 0) {
-            /* New line, align with prefix */
-            hexLine[pos++] = L'\r';
-            hexLine[pos++] = L'\n';
+            buf[pos++] = L'\r';
+            buf[pos++] = L'\n';
             for (int j = 0; j < prefixLen; j++)
-                hexLine[pos++] = L' ';
+                buf[pos++] = L' ';
         } else if (i > 0 && i % 8 == 0) {
-            /* Extra space every 8 bytes */
-            hexLine[pos++] = L' ';
+            buf[pos++] = L' ';
         }
-        pos += wsprintfW(hexLine + pos, L"%02X ", data[i]);
+        pos += wsprintfW(buf + pos, L"%02X ", data[i]);
     }
-    hexLine[pos++] = L'\r';
-    hexLine[pos++] = L'\n';
-    hexLine[pos] = L'\0';
+    buf[pos++] = L'\r';
+    buf[pos++] = L'\n';
+    buf[pos] = L'\0';
 
-    /* Append with colors: timestamp (gray) + direction (color) + data (black) */
-    AppendColoredText(g_hEdit, timestamp, tsLen, COLOR_TIMESTAMP);
-    AppendColoredText(g_hEdit, direction, dirLen, dirColor);
-    AppendColoredText(g_hEdit, hexLine, pos, COLOR_DATA);
-
-    /* Scroll to end */
-    int textLen = GetWindowTextLengthW(g_hEdit);
-    SendMessageW(g_hEdit, EM_SETSEL, textLen, textLen);
-    SendMessageW(g_hEdit, EM_SCROLLCARET, 0, 0);
-
-    HeapFree(GetProcessHeap(), 0, hexLine);
+    LOG_ENTRY *entry = (LOG_ENTRY *)HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, sizeof(LOG_ENTRY));
+    if (entry) {
+        entry->type = LOG_TYPE_DATA;
+        entry->color1 = (dir == DIR_RX) ? COLOR_RX : COLOR_TX;
+        entry->text = buf;
+        entry->textLen = pos;
+        AddEntry(entry);
+    } else {
+        HeapFree(GetProcessHeap(), 0, buf);
+    }
 }
 
 /* Format and append custom text to log display */
 static void Main_AppendCustomLog(HWND hMainWnd, const WCHAR *tag, const WCHAR *text)
 {
     (void)hMainWnd;
-    if (!g_hEdit || !tag || !text)
+    if (!g_logInitialized || !tag || !text)
         return;
 
-    SYSTEMTIME st;
-    GetLocalTime(&st);
+    /* Build formatted text: timestamp + tag + text + newline */
+    int textLen = lstrlenW(text);
+    int maxLen = 64 + 64 + textLen + 4;
+    WCHAR *buf = (WCHAR *)HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, maxLen * sizeof(WCHAR));
+    if (!buf)
+        return;
 
-    /* Build timestamp: "YYYY-MM-DD HH:MM:SS.mmm " */
-    WCHAR timestamp[32];
-    int tsLen = wsprintfW(timestamp, L"%04d-%02d-%02d %02d:%02d:%02d.%03d ",
-                          st.wYear, st.wMonth, st.wDay,
-                          st.wHour, st.wMinute, st.wSecond, st.wMilliseconds);
+    int pos = 0;
+    pos += FormatTimestamp(buf + pos, maxLen - pos);
+    pos += wsprintfW(buf + pos, L"[%s] ", tag);
+    CopyMemory(buf + pos, text, textLen * sizeof(WCHAR));
+    pos += textLen;
+    buf[pos++] = L'\r';
+    buf[pos++] = L'\n';
+    buf[pos] = L'\0';
 
-    /* Build tag: "[tag] " */
-    WCHAR tagStr[64];
-    int tagLen = wsprintfW(tagStr, L"[%s] ", tag);
-
-    /* Append with colors: timestamp (gray) + tag (orange) + text (black) */
-    AppendColoredText(g_hEdit, timestamp, tsLen, COLOR_TIMESTAMP);
-    AppendColoredText(g_hEdit, tagStr, tagLen, COLOR_CUSTOM);
-    AppendColoredText(g_hEdit, text, lstrlenW(text), COLOR_DATA);
-
-    /* Append newline */
-    AppendColoredText(g_hEdit, L"\r\n", 2, COLOR_DATA);
-
-    /* Scroll to end */
-    int textLen = GetWindowTextLengthW(g_hEdit);
-    SendMessageW(g_hEdit, EM_SETSEL, textLen, textLen);
-    SendMessageW(g_hEdit, EM_SCROLLCARET, 0, 0);
+    LOG_ENTRY *entry = (LOG_ENTRY *)HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, sizeof(LOG_ENTRY));
+    if (entry) {
+        entry->type = LOG_TYPE_CUSTOM;
+        entry->color1 = COLOR_CUSTOM;
+        entry->text = buf;
+        entry->textLen = pos;
+        AddEntry(entry);
+    } else {
+        HeapFree(GetProcessHeap(), 0, buf);
+    }
 }
 
 /* Format and append signal/config log with distinct colors */
 static void Main_AppendSignalLog(const WCHAR *tag, const WCHAR *text, COLORREF tagColor)
 {
-    if (!g_hEdit || !tag || !text)
+    if (!g_logInitialized || !tag || !text)
         return;
 
-    SYSTEMTIME st;
-    GetLocalTime(&st);
+    /* Build formatted text: timestamp + tag + text + newline */
+    int textLen = lstrlenW(text);
+    int maxLen = 64 + 64 + textLen + 4;
+    WCHAR *buf = (WCHAR *)HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, maxLen * sizeof(WCHAR));
+    if (!buf)
+        return;
 
-    /* Build timestamp: "YYYY-MM-DD HH:MM:SS.mmm " */
-    WCHAR timestamp[32];
-    int tsLen = wsprintfW(timestamp, L"%04d-%02d-%02d %02d:%02d:%02d.%03d ",
-                          st.wYear, st.wMonth, st.wDay,
-                          st.wHour, st.wMinute, st.wSecond, st.wMilliseconds);
+    int pos = 0;
+    pos += FormatTimestamp(buf + pos, maxLen - pos);
+    pos += wsprintfW(buf + pos, L"[%s] ", tag);
+    CopyMemory(buf + pos, text, textLen * sizeof(WCHAR));
+    pos += textLen;
+    buf[pos++] = L'\r';
+    buf[pos++] = L'\n';
+    buf[pos] = L'\0';
 
-    /* Build tag: "[tag] " */
-    WCHAR tagStr[64];
-    int tagLen = wsprintfW(tagStr, L"[%s] ", tag);
-
-    /* Append with colors: timestamp (gray) + tag (signal/config color) + text (gray) */
-    AppendColoredText(g_hEdit, timestamp, tsLen, COLOR_TIMESTAMP);
-    AppendColoredText(g_hEdit, tagStr, tagLen, tagColor);
-    AppendColoredText(g_hEdit, text, lstrlenW(text), COLOR_TIMESTAMP);
-
-    /* Append newline */
-    AppendColoredText(g_hEdit, L"\r\n", 2, COLOR_DATA);
-
-    /* Scroll to end */
-    int textLen = GetWindowTextLengthW(g_hEdit);
-    SendMessageW(g_hEdit, EM_SETSEL, textLen, textLen);
-    SendMessageW(g_hEdit, EM_SCROLLCARET, 0, 0);
+    LOG_ENTRY *entry = (LOG_ENTRY *)HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, sizeof(LOG_ENTRY));
+    if (entry) {
+        entry->type = LOG_TYPE_SIGNAL;
+        entry->color1 = tagColor;
+        entry->text = buf;
+        entry->textLen = pos;
+        AddEntry(entry);
+    } else {
+        HeapFree(GetProcessHeap(), 0, buf);
+    }
 }
 
 /* Handle Connect command */
@@ -426,6 +568,7 @@ static void Main_OnPing(HWND hMainWnd)
 static void Main_OnLogClear(HWND hMainWnd)
 {
     (void)hMainWnd;
+    LogView_Flush();
     if (g_hEdit)
         SetWindowTextW(g_hEdit, L"");
 }
@@ -663,6 +806,9 @@ static LRESULT CALLBACK MainWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM l
             UpdateTitle(hWnd);
             UpdateMenuState(hWnd);
             UpdateStatusBar();
+
+            /* Initialize log view subsystem */
+            LogView_Init(hWnd);
         }
         return 0;
 
@@ -688,6 +834,13 @@ static LRESULT CALLBACK MainWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM l
             UpdateStatusBar();
         }
         return 0;
+
+    case WM_TIMER:
+        if (wParam == LOG_FLUSH_TIMER_ID) {
+            LogView_FlushTimer();
+            return 0;
+        }
+        break;
 
     case WM_COMMAND:
         switch (LOWORD(wParam)) {
@@ -888,6 +1041,9 @@ static LRESULT CALLBACK MainWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM l
         return 0;
 
     case WM_DESTROY:
+        /* Flush and shutdown log view subsystem */
+        LogView_Close();
+
         /* Unregister device notifications */
         if (g_hDevNotify) {
             UnregisterDeviceNotification(g_hDevNotify);
