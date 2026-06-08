@@ -19,7 +19,7 @@ AS = poasm.exe#
 RC = porc.exe#
 LINK = polink.exe#
 SIGN = posign.exe#
-INCLUDE = $(PellesCDir)\Include\Win;$(PellesCDir)\Include;src;src/utils;res#
+INCLUDE = $(PellesCDir)\Include\Win;$(PellesCDir)\Include;src;src/utils;src/res#
 LIB = $(PellesCDir)\Lib\Win64;$(PellesCDir)\Lib#
 POC_PROJECT_EXECUTOR = #
 POC_PROJECT_ARGUMENTS = #
@@ -36,7 +36,7 @@ AS = poasm.exe#
 RC = porc.exe#
 LINK = polink.exe#
 SIGN = posign.exe#
-INCLUDE = $(PellesCDir)\Include\Win;$(PellesCDir)\Include;src;src/utils;res#
+INCLUDE = $(PellesCDir)\Include\Win;$(PellesCDir)\Include;src;src/utils;src/res#
 LIB = $(PellesCDir)\Lib\Win64;$(PellesCDir)\Lib#
 POC_PROJECT_EXECUTOR = #
 POC_PROJECT_ARGUMENTS = #
@@ -124,9 +124,9 @@ output\trace.obj: \
 output\main.res: \
 	src\resource.rc \
 	src\resource.h \
-	res\app.ico \
-	res\toolbar.bmp \
-	res\res1.xml
+	src\res\app.ico \
+	src\res\toolbar.bmp \
+	src\res\res1.xml
 	$(RC) $(RCFLAGS) "$!" -Fo"$@"
 
 .SILENT:
