@@ -17,7 +17,9 @@
 
 #pragma comment(lib, "setupapi.lib")
 
+#if ENABLE_TRACE
 static const char *TAG = "SER";
+#endif
 
 #define READ_BUFFER_SIZE 4096
 #define MAX_PORTS 64
@@ -138,15 +140,27 @@ static DWORD WINAPI Listener_Proc(LPVOID param)
         if (!WaitCommEvent(ctx->hPort, &dwEvtMask, &ov)) {
             if (GetLastError() == ERROR_IO_PENDING) {
                 DWORD waitResult = WaitForSingleObject(ov.hEvent, 100);
-                if (waitResult == WAIT_TIMEOUT)
-                    continue;
-                if (waitResult != WAIT_OBJECT_0) {
+                if (waitResult == WAIT_TIMEOUT) {
+                    /* Timeout - check if there's data in the buffer anyway */
+                    COMSTAT comStat;
+                    DWORD dwErrors;
+                    if (ClearCommError(ctx->hPort, &dwErrors, &comStat) && comStat.cbInQue > 0) {
+                        dwEvtMask = EV_RXCHAR;
+                    } else {
+                        continue;
+                    }
+                }
+                if (waitResult != WAIT_OBJECT_0 && waitResult != WAIT_TIMEOUT) {
                     errorExit = (waitResult == WAIT_FAILED);
                     break;
                 }
-                if (!GetOverlappedResult(ctx->hPort, &ov, &(DWORD){0}, FALSE)) {
-                    errorExit = TRUE;
-                    break;
+                if (waitResult == WAIT_OBJECT_0) {
+                    if (!GetOverlappedResult(ctx->hPort, &ov, &(DWORD){0}, FALSE)) {
+                        if (GetLastError() == ERROR_OPERATION_ABORTED)
+                            continue;
+                        errorExit = TRUE;
+                        break;
+                    }
                 }
             } else if (GetLastError() == ERROR_OPERATION_ABORTED) {
                 /* Normal shutdown via CancelIo */
@@ -172,8 +186,10 @@ static DWORD WINAPI Listener_Proc(LPVOID param)
                 break;
             }
 
-            if (comStat.cbInQue > 0 && comStat.cbInQue < READ_BUFFER_SIZE) {
+            if (comStat.cbInQue > 0) {
                 DWORD toRead = comStat.cbInQue;
+                if (toRead > READ_BUFFER_SIZE)
+                    toRead = READ_BUFFER_SIZE;
                 OVERLAPPED ovRead = {0};
                 ovRead.hEvent = hReadEvent;
                 ResetEvent(hReadEvent);
@@ -288,7 +304,7 @@ BOOL Serial_Open(SERIAL_CTX *ctx, const WCHAR *portName, HWND hNotify)
     if (ctx->hPort == INVALID_HANDLE_VALUE) {
         TRACE_FW(TAG, "ERROR: CreateFileW failed: %lu", GetLastError());
         CloseHandle(ctx->hStartEvent);
-                return FALSE;
+        return FALSE;
     }
 
     /* Configure serial port: 115200 baud, 8 data bits, no parity, 1 stop bit */
@@ -297,7 +313,7 @@ BOOL Serial_Open(SERIAL_CTX *ctx, const WCHAR *portName, HWND hNotify)
         CloseHandle(ctx->hPort);
         ctx->hPort = INVALID_HANDLE_VALUE;
         CloseHandle(ctx->hStartEvent);
-                return FALSE;
+        return FALSE;
     }
 
     dcb.BaudRate = CBR_115200;
@@ -315,7 +331,7 @@ BOOL Serial_Open(SERIAL_CTX *ctx, const WCHAR *portName, HWND hNotify)
         CloseHandle(ctx->hPort);
         ctx->hPort = INVALID_HANDLE_VALUE;
         CloseHandle(ctx->hStartEvent);
-                return FALSE;
+        return FALSE;
     }
 
     /* Set timeouts */
@@ -350,7 +366,7 @@ BOOL Serial_Open(SERIAL_CTX *ctx, const WCHAR *portName, HWND hNotify)
         CloseHandle(ctx->hPort);
         ctx->hPort = INVALID_HANDLE_VALUE;
         CloseHandle(ctx->hStartEvent);
-                return FALSE;
+        return FALSE;
     }
 
     /* Wait for thread to start */
@@ -437,6 +453,18 @@ DWORD Serial_WriteData(SERIAL_CTX *ctx, const BYTE *data, DWORD len, HWND hNotif
     if (!data || len == 0)
         return 0;
 
+    /* Post TX data to UI thread for logging first (before WriteFile,
+       so log is recorded even if write fails or times out) */
+    if (hNotify && IsWindow(hNotify)) {
+        void *copy = HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, len + 1);
+        if (copy) {
+            CopyMemory(copy, data, len);
+            if (!PostMessage(hNotify, WM_SERIAL_TX, (WPARAM)len, (LPARAM)copy)) {
+                HeapFree(GetProcessHeap(), 0, copy);
+            }
+        }
+    }
+
     OVERLAPPED ov = {0};
     HANDLE hEvent = CreateEvent(NULL, TRUE, FALSE, NULL);
     if (!hEvent)
@@ -453,17 +481,9 @@ DWORD Serial_WriteData(SERIAL_CTX *ctx, const BYTE *data, DWORD len, HWND hNotif
 
     if (result && bytesWritten > 0) {
         ctx->dwTxBytes += bytesWritten;
-
-        /* Post TX data to UI thread for logging */
-        if (hNotify && IsWindow(hNotify)) {
-            void *copy = HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, bytesWritten + 1);
-            if (copy) {
-                CopyMemory(copy, data, bytesWritten);
-                if (!PostMessage(hNotify, WM_SERIAL_TX, (WPARAM)bytesWritten, (LPARAM)copy)) {
-                    HeapFree(GetProcessHeap(), 0, copy);
-                }
-            }
-        }
+    } else {
+        Serial_PostLogF(hNotify, L"TX!", L"WriteFile failed: result=%d err=%lu written=%lu/%lu",
+                        result, GetLastError(), bytesWritten, len);
     }
 
     return bytesWritten;

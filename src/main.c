@@ -22,7 +22,9 @@
 
 #pragma comment(lib, "comctl32.lib")
 
+#if ENABLE_TRACE
 static const char *TAG = "GUI";
+#endif
 
 /* Default font settings */
 #define DEFAULT_FONT_NAME L"Consolas"

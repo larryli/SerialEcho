@@ -33,7 +33,9 @@
 #include "utils/trace.h"
 #include <stdlib.h>
 
+#if ENABLE_TRACE
 static const char *TAG = "PROTO";
+#endif
 
 #define PING_MIN_SIZE   1
 #define PING_MAX_SIZE   256
