@@ -15,6 +15,7 @@ add_executable(SerialEcho WIN32
     src/main.c
     src/serial.c
     src/protocol.c
+    src/app_logview.c
     src/utils/config.c
     src/utils/lang.c
     src/utils/trace.c
