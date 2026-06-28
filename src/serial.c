@@ -11,9 +11,12 @@
 #include "main.h"
 #include "resource.h"
 #include "utils/trace.h"
-#include <setupapi.h>
 #include <devguid.h>
+#include <setupapi.h>
 #include <stdio.h>
+#include <stdlib.h>
+#include <wchar.h>
+#include <wctype.h>
 
 #pragma comment(lib, "setupapi.lib")
 
@@ -21,8 +24,36 @@
 static const char *TAG = "SER";
 #endif
 
-#define READ_BUFFER_SIZE 4096
+#define READ_BUFFER_SIZE 32768
 #define MAX_PORTS 64
+
+/*
+ * NaturalCompare - Natural string comparison for sorting
+ *
+ * Compares strings with embedded numbers as numeric values.
+ * Example: "COM3" < "COM10" (3 < 10)
+ */
+static int NaturalCompare(const WCHAR *s1, const WCHAR *s2)
+{
+    while (*s1 && *s2) {
+        if (iswdigit(*s1) && iswdigit(*s2)) {
+            long n1 = wcstol(s1, (WCHAR **)&s1, 10);
+            long n2 = wcstol(s2, (WCHAR **)&s2, 10);
+            if (n1 != n2) {
+                return (n1 < n2) ? -1 : 1;
+            }
+        } else {
+            WCHAR c1 = towlower(*s1);
+            WCHAR c2 = towlower(*s2);
+            if (c1 != c2) {
+                return (c1 < c2) ? -1 : 1;
+            }
+            s1++;
+            s2++;
+        }
+    }
+    return (*s1) ? 1 : ((*s2) ? -1 : 0);
+}
 
 /* Port info structure for friendly name display */
 typedef struct {
@@ -32,6 +63,23 @@ typedef struct {
 
 static PORT_INFO g_portInfo[MAX_PORTS];
 static int g_portCount = 0;
+
+/* Combo box item for sorting */
+typedef struct {
+    WCHAR text[128];
+    int portIdx;
+} COMBO_ITEM;
+
+/*
+ * ComboItemCompare - Comparison function for qsort
+ */
+static int ComboItemCompare(const void *a, const void *b)
+{
+    const COMBO_ITEM *ia = (const COMBO_ITEM *)a;
+    const COMBO_ITEM *ib = (const COMBO_ITEM *)b;
+    return NaturalCompare(g_portInfo[ia->portIdx].portName,
+                          g_portInfo[ib->portIdx].portName);
+}
 
 /*
  * Serial_EnumPorts - Enumerate available serial ports with friendly names
@@ -89,8 +137,37 @@ BOOL Serial_EnumPorts(HWND hCombo)
 
     SetupDiDestroyDeviceInfoList(devInfo);
 
-    if (found)
+    /* Sort combo box items using natural sort on port name */
+    if (found) {
+        int count = (int)SendMessageW(hCombo, CB_GETCOUNT, 0, 0);
+        if (count > 1) {
+            COMBO_ITEM *items = (COMBO_ITEM *)HeapAlloc(
+                GetProcessHeap(), 0, count * sizeof(COMBO_ITEM));
+            if (items) {
+                for (int i = 0; i < count; i++) {
+                    SendMessageW(hCombo, CB_GETLBTEXT, i,
+                                 (LPARAM)items[i].text);
+                    items[i].portIdx =
+                        (int)SendMessageW(hCombo, CB_GETITEMDATA, i, 0);
+                }
+
+                qsort(items, count, sizeof(COMBO_ITEM), ComboItemCompare);
+
+                SendMessageW(hCombo, CB_RESETCONTENT, 0, 0);
+                for (int i = 0; i < count; i++) {
+                    int idx =
+                        (int)SendMessageW(hCombo, CB_INSERTSTRING, (WPARAM)-1,
+                                          (LPARAM)items[i].text);
+                    if (idx >= 0)
+                        SendMessageW(hCombo, CB_SETITEMDATA, idx,
+                                     items[i].portIdx);
+                }
+
+                HeapFree(GetProcessHeap(), 0, items);
+            }
+        }
         SendMessageW(hCombo, CB_SETCURSEL, 0, 0);
+    }
 
     return found;
 }
