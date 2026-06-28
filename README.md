@@ -63,6 +63,8 @@ SerialEcho/
 
 - [需求规格说明](docs/REQUIREMENTS.md)
 - [二次开发指南](docs/DEVELOPMENT.md)
+- [协议层开发规范](docs/PROTOCOL.md)
+- [待办改进项](docs/TODO.md)
 
 ## 许可证
 
