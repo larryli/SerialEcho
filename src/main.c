@@ -9,6 +9,7 @@
 #include "main.h"
 #include "app_logview.h"
 #include "app_protocol.h"
+#include "echo_hal.h"
 #include "serial.h"
 #include "protocol.h"
 #include "resource.h"
@@ -263,7 +264,7 @@ static void Main_OnPing(HWND hMainWnd)
         return;
     }
 
-    Protocol_SendPing(&g_serial, hMainWnd);
+    Protocol_SendPing();
 }
 
 /* Handle Log > Clear command */
@@ -777,6 +778,9 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPWSTR lpCmdLi
 
     /* Initialize configuration */
     Config_Init();
+
+    /* Initialize HAL */
+    EchoHalInit(&g_serial);
 
     /* Initialize GUI subsystem */
     if (!Main_Init(hInstance)) {
