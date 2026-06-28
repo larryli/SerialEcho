@@ -8,6 +8,7 @@
 #include <windows.h>
 #include "main.h"
 #include "app_logview.h"
+#include "app_protocol.h"
 #include "serial.h"
 #include "protocol.h"
 #include "resource.h"
@@ -659,57 +660,19 @@ static LRESULT CALLBACK MainWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM l
         {
             DWORD param = (DWORD)wParam;
             if (param == 0) {
-                /* Host signal change (DSR/CTS/RI/DCD from GetCommModemStatus) */
-                DWORD modemStatus = (DWORD)lParam;
-                WCHAR buf[96];
-                wsprintfW(buf, L"DSR:%s CTS:%s RI:%s DCD:%s",
-                          (modemStatus & MS_DSR_ON) ? L"ON" : L"OFF",
-                          (modemStatus & MS_CTS_ON) ? L"ON" : L"OFF",
-                          (modemStatus & MS_RING_ON) ? L"ON" : L"OFF",
-                          (modemStatus & MS_RLSD_ON) ? L"ON" : L"OFF");
-                Main_AppendSignalLog(L"SIG", buf, COLOR_SIGNAL);
+                AppProtocol_OnSignal((DWORD)lParam);
             } else if (param == 1) {
-                /* DTR change */
-                BOOL state = (BOOL)lParam;
-                WCHAR buf[32];
-                wsprintfW(buf, L"DTR:%s", state ? L"ON" : L"OFF");
-                Main_AppendSignalLog(L"SIG", buf, COLOR_SIGNAL);
+                AppProtocol_OnDtrChange((BOOL)lParam);
             } else if (param == 2) {
-                /* RTS change */
-                BOOL state = (BOOL)lParam;
-                WCHAR buf[32];
-                wsprintfW(buf, L"RTS:%s", state ? L"ON" : L"OFF");
-                Main_AppendSignalLog(L"SIG", buf, COLOR_SIGNAL);
+                AppProtocol_OnRtsChange((BOOL)lParam);
             }
         }
         return 0;
 
     case WM_SERIAL_CONFIG:
         /* Configuration change notification */
-        {
-            DWORD baudRate = 0;
-            BYTE dataBits = 0, parity = 0, stopBits = 0;
-            if (Serial_GetConfig(&g_serial, &baudRate, &dataBits, &parity, &stopBits)) {
-                const WCHAR *parityStr = L"N";
-                switch (parity) {
-                case NOPARITY: parityStr = L"N"; break;
-                case ODDPARITY: parityStr = L"O"; break;
-                case EVENPARITY: parityStr = L"E"; break;
-                case MARKPARITY: parityStr = L"M"; break;
-                case SPACEPARITY: parityStr = L"S"; break;
-                }
-                const WCHAR *stopStr = L"1";
-                switch (stopBits) {
-                case ONESTOPBIT: stopStr = L"1"; break;
-                case ONE5STOPBITS: stopStr = L"1.5"; break;
-                case TWOSTOPBITS: stopStr = L"2"; break;
-                }
-                WCHAR buf[64];
-                wsprintfW(buf, L"%lu,%d%s%s", baudRate, dataBits, parityStr, stopStr);
-                Main_AppendSignalLog(L"CFG", buf, COLOR_CONFIG);
-            }
-            UpdateStatusBar();
-        }
+        AppProtocol_OnConfigChange(&g_serial);
+        UpdateStatusBar();
         return 0;
 
     case WM_DEVICECHANGE:

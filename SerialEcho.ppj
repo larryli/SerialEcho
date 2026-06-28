@@ -51,6 +51,7 @@ POC_PROJECT_ZIPEXTRA = #
 # 
 SerialEcho.exe: \
 	output\app_logview.obj \
+	output\app_protocol.obj \
 	output\config.obj \
 	output\lang.obj \
 	output\main.obj \
@@ -66,6 +67,7 @@ SerialEcho.exe: \
 output\main.obj: \
 	src\main.c \
 	src\app_logview.h \
+	src\app_protocol.h \
 	src\main.h \
 	src\protocol.h \
 	src\resource.h \
@@ -137,6 +139,17 @@ output\app_logview.obj: \
 	src\app_logview.c \
 	src\app_logview.h \
 	src\serial.h
+	$(CC) $(CCFLAGS) "$!" -Fo"$@"
+
+# 
+# Build app_protocol.obj.
+# 
+output\app_protocol.obj: \
+	src\app_protocol.c \
+	src\app_logview.h \
+	src\app_protocol.h \
+	src\serial.h \
+	src\utils\trace.h
 	$(CC) $(CCFLAGS) "$!" -Fo"$@"
 
 .SILENT:
