@@ -5,17 +5,33 @@
 ## 架构概览
 
 ```
-┌─────────────┐     ┌─────────────┐          ┌─────────────┐
-│   main.c    │────▶│  serial.c   │──回调──▶│ protocol.c  │
-│  (UI层)     │     │ (通信层)    │          │ (协议层)    │
-└─────────────┘     └─────────────┘          └─────────────┘
+┌─────────────────┐     ┌─────────────────┐
+│     main.c      │────▶│   serial.c      │
+│    (GUI层)      │     │  (通信层)       │
+└────────┬────────┘     └────────┬────────┘
+         │                       │
+         ▼                       ▼
+┌─────────────────┐  ┌─────────────────┐  ┌─────────────────┐
+│ app_protocol.c  │  │  echo_hal.c     │  │ app_logview.c   │
+│ (信号/配置处理) │  │ (平台合同)     │  │ (日志显示)      │
+└─────────────────┘  └────────┬────────┘  └─────────────────┘
+                              │
+                              ▼
+                     ┌─────────────────┐
+                     │   protocol.c    │
+                     │  (协议逻辑)     │
+                     └─────────────────┘
 ```
 
 | 模块 | 职责 |
 |------|------|
-| `main.c` | 用户界面，注册协议回调，显示日志 |
-| `serial.c` | 串口通信，数据收发，信号控制 |
-| `protocol.c` | 协议处理，响应接收数据 |
+| `main.c` | 用户界面，消息分发 |
+| `serial.c/h` | 串口通信，数据收发，信号控制 |
+| `echo_hal.c/h` | 协议层平台合同（send, log） |
+| `protocol.c/h` | 协议处理逻辑（回环） |
+| `app_protocol.c/h` | 信号/配置变化处理 |
+| `app_logview.c/h` | 带缓冲的彩色日志显示 |
+| `utils/*` | 配置、国际化、调试日志 |
 
 ## 快速开始
 
@@ -26,11 +42,11 @@
 #ifndef MY_PROTOCOL_H
 #define MY_PROTOCOL_H
 
-#include "serial.h"
+#include <windows.h>
 
 void MyProtocol_Init(void);
-void MyProtocol_OnData(SERIAL_CTX *ctx, const BYTE *data, DWORD len, HWND hNotify);
-void MyProtocol_OnSignal(SERIAL_CTX *ctx, DWORD modemStatus, HWND hNotify);
+void MyProtocol_OnData(void *ctx, const BYTE *data, DWORD len, HWND hNotify);
+void MyProtocol_OnSignal(void *ctx, DWORD modemStatus, HWND hNotify);
 
 #endif
 ```
@@ -38,6 +54,7 @@ void MyProtocol_OnSignal(SERIAL_CTX *ctx, DWORD modemStatus, HWND hNotify);
 ```c
 // src/my_protocol.c
 #include "my_protocol.h"
+#include "echo_hal.h"
 #include "utils/trace.h"
 
 static const char *TAG = "MY";
@@ -47,24 +64,27 @@ void MyProtocol_Init(void)
     TRACE_PROTO(TAG, "Protocol initialized");
 }
 
-void MyProtocol_OnData(SERIAL_CTX *ctx, const BYTE *data, DWORD len, HWND hNotify)
+void MyProtocol_OnData(void *ctx, const BYTE *data, DWORD len, HWND hNotify)
 {
-    if (!ctx || !data || len == 0) return;
+    (void)ctx; (void)hNotify;
+    if (!data || len == 0) return;
+
+    echo_hal_log(L"MY", L"Received %lu bytes", len);
 
     // ECHO: send received data back
     BYTE *buf = (BYTE *)HeapAlloc(GetProcessHeap(), 0, len);
     if (buf) {
         CopyMemory(buf, data, len);
-        Serial_WriteData(ctx, buf, len, hNotify);
+        echo_hal_write(buf, len);
         HeapFree(GetProcessHeap(), 0, buf);
     }
 }
 
-void MyProtocol_OnSignal(SERIAL_CTX *ctx, DWORD modemStatus, HWND hNotify)
+void MyProtocol_OnSignal(void *ctx, DWORD modemStatus, HWND hNotify)
 {
+    (void)ctx; (void)hNotify;
     BOOL dsr = (modemStatus & MS_DSR_ON) != 0;
     BOOL cts = (modemStatus & MS_CTS_ON) != 0;
-
     TRACE_PROTO(TAG, "Signal: DSR=%d CTS=%d", dsr, cts);
 }
 ```
@@ -103,9 +123,9 @@ typedef void (*SERIAL_RX_CB)(void *ctx, const BYTE *data, DWORD len, HWND hNotif
 Serial_SetReceiveCallback(&g_serial, (SERIAL_RX_CB)MyProtocol_OnData);
 
 // 实现（协议层）
-void MyProtocol_OnData(SERIAL_CTX *ctx, const BYTE *data, DWORD len, HWND hNotify)
+void MyProtocol_OnData(void *ctx, const BYTE *data, DWORD len, HWND hNotify)
 {
-    // ctx: 串口上下文，可用于 Serial_WriteData
+    // ctx: 串口上下文（通过 echo_hal 操作）
     // data: 接收数据
     // len: 数据长度
     // hNotify: UI 窗口句柄
@@ -122,42 +142,45 @@ typedef void (*SERIAL_SIGNAL_CB)(void *ctx, DWORD modemStatus, HWND hNotify);
 Serial_SetSignalCallback(&g_serial, (SERIAL_SIGNAL_CB)MyProtocol_OnSignal);
 
 // 实现
-void MyProtocol_OnSignal(SERIAL_CTX *ctx, DWORD modemStatus, HWND hNotify)
+void MyProtocol_OnSignal(void *ctx, DWORD modemStatus, HWND hNotify)
 {
     BOOL dsr = (modemStatus & MS_DSR_ON) != 0;  // 主机 DTR 状态
     BOOL cts = (modemStatus & MS_CTS_ON) != 0;  // 主机 RTS 状态
 }
 ```
 
-**注意：** 回调函数签名使用 `SERIAL_CTX *`，注册时需要类型转换 `(SERIAL_RX_CB)`。
+**注意：** 协议层使用 `void *ctx` 和 `echo_hal.h` 操作串口，不直接依赖 `serial.h`。
 
 ## 数据发送
 
-### 直接发送
+### 通过 echo_hal 发送（推荐）
 
 ```c
+#include "echo_hal.h"
+
 BYTE data[] = {0xAA, 0x55, 0x01, 0x02};
-Serial_WriteData(ctx, data, sizeof(data), hNotify);
+echo_hal_write(data, sizeof(data));
 ```
 
 ### 定时发送
 
 ```c
 #include "utils/timer.h"
+#include "echo_hal.h"
 
 static TIMER_CTX *g_timer = NULL;
 
-void StartHeartbeat(SERIAL_CTX *ctx)
+void StartHeartbeat(void)
 {
     g_timer = Timer_Create();
-    Timer_Start(g_timer, 5000, OnHeartbeat, ctx);
+    Timer_Start(g_timer, 5000, OnHeartbeat, NULL);
 }
 
 void OnHeartbeat(void *userData)
 {
-    SERIAL_CTX *ctx = (SERIAL_CTX *)userData;
+    (void)userData;
     BYTE hb[] = {0xAA, 0x55};
-    Serial_WriteData(ctx, hb, sizeof(hb), ctx->hNotify);
+    echo_hal_write(hb, sizeof(hb));
 }
 
 void StopHeartbeat(void)
@@ -239,7 +262,8 @@ Serial_PostLogF(hNotify, L"MODBUS", L"Register %d = %d", addr, value);
 
 ```c
 // my_protocol.c - 自定义协议示例
-#include "serial.h"
+#include "my_protocol.h"
+#include "echo_hal.h"
 #include "utils/trace.h"
 #include "utils/config.h"
 
@@ -253,44 +277,40 @@ void MyProtocol_Init(void)
     TRACE_PROTO(TAG, "Protocol initialized, mode=%d", g_mode);
 }
 
-void MyProtocol_OnData(SERIAL_CTX *ctx, const BYTE *data, DWORD len, HWND hNotify)
+void MyProtocol_OnData(void *ctx, const BYTE *data, DWORD len, HWND hNotify)
 {
-    if (!ctx || !data || len == 0) return;
+    (void)ctx; (void)hNotify;
+    if (!data || len == 0) return;
 
     TRACE_PROTO(TAG, "Received %lu bytes", len);
 
-    // 根据命令类型处理
     switch (data[0]) {
     case 0x01:  // 查询命令
     {
         BYTE resp[4] = {0x01, 0x00, (BYTE)g_mode, 0x00};
-        Serial_WriteData(ctx, resp, sizeof(resp), hNotify);
+        echo_hal_write(resp, sizeof(resp));
         break;
     }
     case 0x02:  // 设置命令
         if (len >= 2) {
             g_mode = data[1];
             Config_SetInt(L"MyProtocol", L"Mode", g_mode);
-            BYTE ack[] = {0x02, 0x01};  // ACK
-            Serial_WriteData(ctx, ack, sizeof(ack), hNotify);
+            BYTE ack[] = {0x02, 0x01};
+            echo_hal_write(ack, sizeof(ack));
         }
         break;
     default:    // ECHO
-        Serial_WriteData(ctx, data, len, hNotify);
+        echo_hal_write(data, len);
         break;
     }
 }
 
-void MyProtocol_OnSignal(SERIAL_CTX *ctx, DWORD modemStatus, HWND hNotify)
+void MyProtocol_OnSignal(void *ctx, DWORD modemStatus, HWND hNotify)
 {
+    (void)ctx; (void)hNotify;
     BOOL dsr = (modemStatus & MS_DSR_ON) != 0;
     BOOL cts = (modemStatus & MS_CTS_ON) != 0;
-
     TRACE_PROTO(TAG, "Signal: DSR=%d CTS=%d", dsr, cts);
-
-    if (dsr && cts) {
-        TRACE_PROTO(TAG, "Host ready");
-    }
 }
 ```
 

@@ -5,7 +5,7 @@
 串口设备模拟器，基于 com0com 虚拟串口驱动方案。程序作为设备端，实现数据回环功能（接收数据原样返回）。
 
 - **技术栈**: C + CMake + Win32 API
-- **波特率**: 115200, 8N1（固定）
+- **波特率**: 默认 115200，支持运行时修改
 - **串口选择**: 弹出对话框手动选择
 
 ---
@@ -137,7 +137,7 @@
 - 标题: "Select Port"
 - 串口下拉列表（自动枚举系统可用串口，显示友好名称）
 - 自动选择上次连接的串口（若存在）
-- 显示配置信息: 115200,8N1（固定）
+- 显示配置信息: 当前串口配置（波特率、数据位、校验、停止位）
 - 确定/取消按钮
 
 ---
@@ -178,10 +178,8 @@ LastPort=COM10
 
 - **角色**: 设备端（模拟设备）
 - **功能**: 数据回环（接收什么返回什么）
-- **波特率**: 115200
-- **数据位**: 8
-- **校验**: 无
-- **停止位**: 1
+- **默认配置**: 115200, 8N1
+- **支持运行时修改**: 波特率、数据位、校验、停止位
 - **读取方式**: WaitCommEvent 事件驱动 + Overlapped I/O
 
 ---
@@ -202,13 +200,13 @@ LastPort=COM10
 修改 `Protocol_ProcessData()` 函数实现自定义协议：
 
 ```c
-void Protocol_ProcessData(SERIAL_CTX *ctx, const BYTE *data,
+void Protocol_ProcessData(void *ctx, const BYTE *data,
                            DWORD len, HWND hNotify)
 {
     // Example: Respond to specific commands
     if (data[0] == 0x01) {
         BYTE resp[] = {0x01, GetSensorValue()};
-        Serial_WriteData(ctx, resp, sizeof(resp), hNotify);
+        echo_hal_write(resp, sizeof(resp));
     }
 }
 ```

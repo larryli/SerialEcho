@@ -43,7 +43,10 @@ SerialEcho/
 ├── src/                    # 源代码
 │   ├── main.c / main.h     # 程序入口和 GUI 实现
 │   ├── serial.c / serial.h # 串口通信模块
-│   ├── protocol.c / protocol.h # 协议处理模块
+│   ├── echo_hal.c / echo_hal.h # 协议层平台合同
+│   ├── protocol.c / protocol.h # 协议处理模块（纯逻辑）
+│   ├── app_protocol.c / app_protocol.h # 信号/配置处理
+│   ├── app_logview.c / app_logview.h # 日志显示
 │   ├── resource.h          # 资源 ID
 │   ├── resource.rc         # 资源文件（菜单、对话框、字符串）
 │   └── utils/              # 辅助模块
@@ -51,10 +54,16 @@ SerialEcho/
 │       ├── lang.c / lang.h       # 国际化辅助
 │       ├── timer.c / timer.h     # 定时器工具
 │       └── trace.c / trace.h     # 调试日志
+├── tests/                  # 单元测试
+│   └── test_echo.c         # Echo 协议测试
 ├── res/                    # 资源文件（图标、位图、清单）
 ├── docs/                   # 文档
 │   ├── REQUIREMENTS.md     # 需求规格
-│   └── DEVELOPMENT.md      # 二次开发指南
+│   ├── DEVELOPMENT.md      # 二次开发指南
+│   ├── PROTOCOL.md         # 协议层开发规范
+│   └── TODO.md             # 待办改进项
+├── .github/workflows/      # CI/CD
+│   └── build.yml           # 构建工作流
 ├── LICENSE                 # MIT 许可证
 └── README.md
 ```

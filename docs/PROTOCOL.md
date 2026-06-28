@@ -7,17 +7,23 @@
 ```
 ┌──────────────────────────────────────────────────────┐
 │  GUI 层                                               │
-│  main.c  app_logview.c  dlg/*.c  serial.c           │
+│  main.c  app_logview.c  serial.c                     │
 └──────────┬───────────────────────────┬───────────────┘
            │                           │
            ▼                           ▼
 ┌──────────────────────┐  ┌────────────────────────────┐
-│  app_logview.c/h     │  │  protocol.c/h              │
-│  — 日志显示          │  │  — 协议逻辑（可替换）      │
-└──────────────────────┘  └────────────────────────────┘
+│  app_protocol.c/h    │  │  echo_hal.c/h              │
+│  — 信号/配置处理     │  │  — 平台合同               │
+└──────────────────────┘  └────────────┬─────────────┘
+                                       │
+                                       ▼
+                              ┌────────────────────┐
+                              │  protocol.c/h      │
+                              │  — 协议逻辑        │
+                              └────────────────────┘
 ```
 
-**设计原则**：协议层是可替换的组件。SerialEcho 提供框架骨架（串口 I/O、GUI、日志），协议层只关注业务逻辑。
+**设计原则**：协议层通过 `echo_hal.h` 合同操作串口，不依赖 `serial.c`。
 
 ## 回调接口
 
@@ -71,11 +77,11 @@ Serial_SetSignalCallback(&g_serial, (SERIAL_SIGNAL_CB)MyProtocol_OnSignal);
 #ifndef MY_PROTOCOL_H
 #define MY_PROTOCOL_H
 
-#include "serial.h"
+#include <windows.h>
 
 void MyProtocol_Init(void);
-void MyProtocol_OnData(SERIAL_CTX *ctx, const BYTE *data, DWORD len, HWND hNotify);
-void MyProtocol_OnSignal(SERIAL_CTX *ctx, DWORD modemStatus, HWND hNotify);
+void MyProtocol_OnData(void *ctx, const BYTE *data, DWORD len, HWND hNotify);
+void MyProtocol_OnSignal(void *ctx, DWORD modemStatus, HWND hNotify);
 
 #endif
 ```
@@ -85,6 +91,7 @@ void MyProtocol_OnSignal(SERIAL_CTX *ctx, DWORD modemStatus, HWND hNotify);
 ```c
 // src/my_protocol.c
 #include "my_protocol.h"
+#include "echo_hal.h"
 #include "app_logview.h"
 #include "utils/trace.h"
 
@@ -95,21 +102,28 @@ void MyProtocol_Init(void)
     TRACE_PROTO(TAG, "Protocol initialized");
 }
 
-void MyProtocol_OnData(SERIAL_CTX *ctx, const BYTE *data, DWORD len, HWND hNotify)
+void MyProtocol_OnData(void *ctx, const BYTE *data, DWORD len, HWND hNotify)
 {
-    // 处理接收数据
+    (void)ctx; (void)hNotify;
+    if (!data || len == 0) return;
+
     TRACE_PROTO(TAG, "Received %lu bytes", len);
-    
+
     // 示例：回环
-    Serial_WriteData(ctx, data, len, hNotify);
-    
+    BYTE *buf = (BYTE *)HeapAlloc(GetProcessHeap(), 0, len);
+    if (buf) {
+        CopyMemory(buf, data, len);
+        echo_hal_write(buf, len);
+        HeapFree(GetProcessHeap(), 0, buf);
+    }
+
     // 记录日志
     Main_AppendLog(hNotify, data, len, DIR_RX);
 }
 
-void MyProtocol_OnSignal(SERIAL_CTX *ctx, DWORD modemStatus, HWND hNotify)
+void MyProtocol_OnSignal(void *ctx, DWORD modemStatus, HWND hNotify)
 {
-    // 处理信号变化
+    (void)ctx; (void)hNotify;
     BOOL dsr = (modemStatus & MS_DSR_ON) != 0;
     BOOL cts = (modemStatus & MS_CTS_ON) != 0;
     TRACE_PROTO(TAG, "Signal: DSR=%s CTS=%s", dsr ? "ON" : "OFF", cts ? "ON" : "OFF");
@@ -154,6 +168,19 @@ SerialEcho 已内置 DTR/RTS 信号监听（`EV_DSR | EV_CTS`），通过 `SERIA
 BOOL Serial_SetDtr(SERIAL_CTX *ctx, BOOL state);  // 设置 DTR
 BOOL Serial_SetRts(SERIAL_CTX *ctx, BOOL state);  // 设置 RTS
 ```
+
+## echo_hal.h 平台合同
+
+协议层通过 `echo_hal.h` 操作串口，不依赖 `serial.c`：
+
+| 函数 | 说明 |
+|------|------|
+| `echo_hal_write(data, len)` | 发送数据 |
+| `echo_hal_log(tag, fmt, ...)` | 日志投递 |
+
+**实现**：`echo_hal.c` 将调用转发到 `serial.c` 的 `Serial_WriteData` 和 `Serial_PostLog`。
+
+**优势**：协议层可独立编译测试，换平台只改 `echo_hal.c`。
 
 ## 日志接口
 
