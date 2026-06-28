@@ -1,6 +1,6 @@
 # Build directories
 build/
-cmake-build-*/
+build_tests/
 
 # Object files
 *.obj
