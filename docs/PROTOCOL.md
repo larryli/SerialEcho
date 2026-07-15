@@ -12,18 +12,18 @@
            │                           │
            ▼                           ▼
 ┌──────────────────────┐  ┌────────────────────────────┐
-│  app_protocol.c/h    │  │  echo_hal.c/h              │
-│  — 信号/配置处理     │  │  — 平台合同               │
+│  app_protocol.c/h    │  │  example_echo_hal.c/h      │
+│  — 信号/配置处理     │  │  — 示例 HAL（需替换）     │
 └──────────────────────┘  └────────────┬─────────────┘
                                        │
                                        ▼
                               ┌────────────────────┐
-                              │  protocol.c/h      │
-                              │  — 协议逻辑        │
+                              │  example_echo.c/h  │
+                              │  — Echo 示例       │
                               └────────────────────┘
 ```
 
-**设计原则**：协议层通过 `echo_hal.h` 合同操作串口，不依赖 `serial.c`。
+**设计原则**：协议层通过 HAL 层操作串口，不依赖 `serial.c`。HAL 层接口需根据实际协议自定义（参考 `example_echo_hal.h`）。
 
 ## 回调接口
 
@@ -132,7 +132,7 @@ void MyProtocol_OnSignal(void *ctx, DWORD modemStatus, HWND hNotify)
 
 ### 步骤 3：修改 main.c
 
-1. 替换 `#include "protocol.h"` 为 `#include "my_protocol.h"`
+1. 替换 `#include "example_echo.h"` 为 `#include "my_protocol.h"`
 2. 在连接时注册回调：
 ```c
 Serial_SetReceiveCallback(&g_serial, (SERIAL_RX_CB)MyProtocol_OnData);
@@ -145,7 +145,7 @@ Serial_SetSignalCallback(&g_serial, (SERIAL_SIGNAL_CB)MyProtocol_OnSignal);
 add_executable(SerialEcho WIN32
     src/main.c
     src/serial.c
-    src/my_protocol.c  # 替换 protocol.c
+    src/my_protocol.c  # 替换 example_echo.c
     src/app_logview.c
     ...
 )
@@ -169,18 +169,20 @@ BOOL Serial_SetDtr(SERIAL_CTX *ctx, BOOL state);  // 设置 DTR
 BOOL Serial_SetRts(SERIAL_CTX *ctx, BOOL state);  // 设置 RTS
 ```
 
-## echo_hal.h 平台合同
+## HAL 平台合同
 
-协议层通过 `echo_hal.h` 操作串口，不依赖 `serial.c`：
+协议层通过 HAL 层操作串口，不依赖 `serial.c`。HAL 接口需根据实际协议自定义。
+
+**示例**（`example_echo_hal.h`）：
 
 | 函数 | 说明 |
 |------|------|
 | `echo_hal_write(data, len)` | 发送数据 |
 | `echo_hal_log(tag, fmt, ...)` | 日志投递 |
 
-**实现**：`echo_hal.c` 将调用转发到 `serial.c` 的 `Serial_WriteData` 和 `Serial_PostLog`。
+**实现**：`example_echo_hal.c` 将调用转发到 `serial.c` 的 `Serial_WriteData` 和 `Serial_PostLog`。
 
-**优势**：协议层可独立编译测试，换平台只改 `echo_hal.c`。
+**优势**：协议层可独立编译测试，换平台只改 HAL 实现。
 
 ## 日志接口
 

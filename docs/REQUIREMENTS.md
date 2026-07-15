@@ -186,7 +186,7 @@ LastPort=COM10
 
 ## 协议处理框架
 
-协议处理模块 `protocol.c/protocol.h` 提供简单的数据处理接口。
+协议处理模块 `example_echo.c/example_echo.h` 提供 Echo 示例（仅作演示，实际应用需替换）。
 
 ### 当前实现
 

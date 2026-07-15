@@ -1,11 +1,13 @@
 /*
- * echo_hal.c - Platform contract implementation
+ * example_echo_hal.c - Platform contract implementation (echo demo)
  *
- * Implements echo_hal.h by forwarding to serial.c functions.
+ * Implements example_echo_hal.h by forwarding to serial.c functions.
  * This is the only file that knows about serial.c.
+ *
+ * This is a DEMO HAL. Replace with your own HAL for real applications.
  */
 
-#include "echo_hal.h"
+#include "example_echo_hal.h"
 #include "serial.h"
 #include <stdio.h>
 #include <stdarg.h>

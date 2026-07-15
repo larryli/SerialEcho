@@ -306,7 +306,7 @@ static DWORD WINAPI Listener_Proc(LPVOID param)
                      * Call the registered callback to process received data.
                      * Set callback via Serial_SetReceiveCallback().
                      *
-                     * Current default: ECHO - send received data back (protocol.c)
+                     * Current demo: ECHO - send received data back (example_echo.c)
                      *
                      * To customize: implement your own callback and register it.
                      *

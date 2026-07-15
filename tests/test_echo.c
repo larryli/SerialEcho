@@ -35,7 +35,7 @@ static void Serial_PostLogF(HWND hNotify, const WCHAR *tag, const WCHAR *fmt, ..
     (void)hNotify; (void)tag; (void)fmt;
 }
 
-/* Protocol implementation (inlined) */
+/* Protocol implementation (inlined from example_echo.c) */
 static void Protocol_ProcessData(SERIAL_CTX *ctx, const BYTE *data, DWORD len, HWND hNotify)
 {
     if (!ctx || !data || len == 0)

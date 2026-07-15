@@ -14,8 +14,8 @@ set(CMAKE_C_STANDARD 11)
 add_executable(SerialEcho WIN32
     src/main.c
     src/serial.c
-    src/echo_hal.c
-    src/protocol.c
+    src/example_echo_hal.c
+    src/example_echo.c
     src/app_protocol.c
     src/app_logview.c
     src/utils/config.c

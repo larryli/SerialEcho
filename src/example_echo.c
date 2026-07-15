@@ -1,11 +1,14 @@
 /*
- * protocol.c - Protocol handler implementation
+ * example_echo.c - Echo protocol example
  *
  * ECHO protocol: received data is sent back as-is (loopback).
  * Ping function: sends random data for testing.
  *
- * Uses echo_hal.h for platform operations (send, log).
+ * Uses example_echo_hal.h for platform operations (send, log).
  * Does NOT depend on serial.h directly.
+ *
+ * This is a DEMO protocol. Replace this file with your own protocol
+ * implementation for real applications.
  *
  * ============================================================
  * Extension Guide
@@ -32,30 +35,30 @@
  * ============================================================
  */
 
-#include "echo_hal.h"
+#include "example_echo_hal.h"
 #include "utils/trace.h"
 #include <stdlib.h>
 
 #if ENABLE_TRACE
-static const char *TAG = "PROTO";
+static const char *TAG = "ECHO";
 #endif
 
 #define PING_MIN_SIZE   1
 #define PING_MAX_SIZE   256
 
-void Protocol_Init(void)
+void ExampleEcho_Init(void)
 {
     srand((unsigned int)GetTickCount64());
-    TRACE_PROTO(TAG, "Protocol module initialized");
+    TRACE_PROTO(TAG, "Example Echo initialized");
 }
 
 /*
- * Protocol_ProcessData - ECHO protocol handler
+ * ExampleEcho_ProcessData - ECHO protocol handler
  *
  * Receives data and sends it back unchanged (loopback).
- * This is the default callback registered via Serial_SetReceiveCallback().
+ * This is the demo callback registered via Serial_SetReceiveCallback().
  */
-void Protocol_ProcessData(void *ctx, const BYTE *data, DWORD len, HWND hNotify)
+void ExampleEcho_ProcessData(void *ctx, const BYTE *data, DWORD len, HWND hNotify)
 {
     (void)ctx;
     (void)hNotify;
@@ -79,12 +82,12 @@ void Protocol_ProcessData(void *ctx, const BYTE *data, DWORD len, HWND hNotify)
 }
 
 /*
- * Protocol_SendPing - Send random data for testing
+ * ExampleEcho_SendPing - Send random data for testing
  *
  * Generates and sends 1-256 bytes of random data.
  * Useful for testing serial connection and throughput.
  */
-void Protocol_SendPing(void)
+void ExampleEcho_SendPing(void)
 {
     DWORD size = PING_MIN_SIZE + (rand() % (PING_MAX_SIZE - PING_MIN_SIZE + 1));
 

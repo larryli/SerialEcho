@@ -53,11 +53,11 @@ SerialEcho.exe: \
 	output\app_logview.obj \
 	output\app_protocol.obj \
 	output\config.obj \
-	output\echo_hal.obj \
+	output\example_echo_hal.obj \
 	output\lang.obj \
 	output\main.obj \
 	output\main.res \
-	output\protocol.obj \
+	output\example_echo.obj \
 	output\serial.obj \
 	output\trace.obj
 	$(LINK) $(LINKFLAGS) -out:"$@" $**
@@ -69,9 +69,9 @@ output\main.obj: \
 	src\main.c \
 	src\app_logview.h \
 	src\app_protocol.h \
-	src\echo_hal.h \
+	src\example_echo_hal.h \
 	src\main.h \
-	src\protocol.h \
+	src\example_echo.h \
 	src\resource.h \
 	src\serial.h \
 	src\utils\config.h \
@@ -91,11 +91,11 @@ output\serial.obj: \
 	$(CC) $(CCFLAGS) "$!" -Fo"$@"
 
 # 
-# Build protocol.obj.
+# Build example_echo.obj.
 # 
-output\protocol.obj: \
-	src\protocol.c \
-	src\echo_hal.h \
+output\example_echo.obj: \
+	src\example_echo.c \
+	src\example_echo_hal.h \
 	src\utils\trace.h
 	$(CC) $(CCFLAGS) "$!" -Fo"$@"
 
@@ -154,11 +154,11 @@ output\app_protocol.obj: \
 	$(CC) $(CCFLAGS) "$!" -Fo"$@"
 
 # 
-# Build echo_hal.obj.
+# Build example_echo_hal.obj.
 # 
-output\echo_hal.obj: \
-	src\echo_hal.c \
-	src\echo_hal.h \
+output\example_echo_hal.obj: \
+	src\example_echo_hal.c \
+	src\example_echo_hal.h \
 	src\serial.h
 	$(CC) $(CCFLAGS) "$!" -Fo"$@"
 

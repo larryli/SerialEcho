@@ -1,12 +1,14 @@
 /*
- * echo_hal.h - Protocol layer platform contract
+ * example_echo_hal.h - Protocol layer platform contract (echo demo)
  *
  * Defines the interface that protocol implementations must use
  * for platform-specific operations (serial I/O, logging).
+ *
+ * This is a DEMO HAL. Replace with your own HAL for real applications.
  */
 
-#ifndef ECHO_HAL_H
-#define ECHO_HAL_H
+#ifndef EXAMPLE_ECHO_HAL_H
+#define EXAMPLE_ECHO_HAL_H
 
 #include <windows.h>
 
@@ -26,4 +28,4 @@ DWORD echo_hal_write(const BYTE *data, DWORD len);
  */
 void echo_hal_log(const WCHAR *tag, const WCHAR *fmt, ...);
 
-#endif /* ECHO_HAL_H */
+#endif /* EXAMPLE_ECHO_HAL_H */

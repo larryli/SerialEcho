@@ -1,17 +1,39 @@
 /*
  * main.c - SerialEcho Application
  *
- * Main entry point, GUI implementation with toolbar, status bar,
- * and RichEdit log display. Handles menu commands and serial port events.
+ * Main entry point with Win32 GUI for serial port Echo demo.
+ *
+ * ============================================================
+ * When using this as a template for your own application:
+ * ============================================================
+ *
+ * Framework (keep):
+ *   wWinMain, Main_Init, Main_CreateWindow  -- entry / window setup
+ *   WM_CREATE (RichEdit + font + device notify) -- log view setup
+ *   WM_SIZE, WM_TIMER, WM_DESTROY             -- layout / cleanup
+ *   WM_SERIAL_* (RX/TX/ERROR/LOG/SIGNAL/CONFIG) -- serial <-> GUI bridge
+ *   WM_DEVICECHANGE, WM_CLOSE                 -- device removal / exit
+ *
+ * Echo example GUI (replace with your own):
+ *   WM_CREATE (toolbar / statusbar creation)   -- your toolbar & statusbar
+ *   WM_COMMAND, WM_NOTIFY (tooltips)           -- your menu / button handlers
+ *   UpdateMenuState, UpdateTitle, UpdateStatusBar -- your UI state management
+ *   Main_OnConnect (callback registration line) -- swap Echo -> your protocol
+ *   Main_OnDisconnect, Main_OnExit              -- adjust as needed
+ *   Main_OnPing                                 -- yours or remove
+ *   Main_OnLogClear, Main_OnLogSaveAs, Main_OnLogFont -- optional
+ *   PortSelectDlgProc                           -- your dialogs
+ *   AboutDlgProc                                -- your about box
+ *   ApplyFontToEdit, InitDefaultFont            -- keep or adjust
  */
 
 #include <windows.h>
 #include "main.h"
 #include "app_logview.h"
 #include "app_protocol.h"
-#include "echo_hal.h"
+#include "example_echo_hal.h"
 #include "serial.h"
-#include "protocol.h"
+#include "example_echo.h"
 #include "resource.h"
 #include "utils/config.h"
 #include "utils/lang.h"
@@ -223,8 +245,8 @@ static void Main_OnConnect(HWND hMainWnd)
         return;
     }
 
-    /* Register protocol callback */
-    Serial_SetReceiveCallback(&g_serial, (SERIAL_RX_CB)Protocol_ProcessData);
+    /* Register echo example callback */
+    Serial_SetReceiveCallback(&g_serial, (SERIAL_RX_CB)ExampleEcho_ProcessData);
 
     TRACE_FW(TAG, "Serial_Open succeeded");
 
@@ -264,7 +286,7 @@ static void Main_OnPing(HWND hMainWnd)
         return;
     }
 
-    Protocol_SendPing();
+    ExampleEcho_SendPing();
 }
 
 /* Handle Log > Clear command */
@@ -728,8 +750,8 @@ static BOOL Main_Init(HINSTANCE hInstance)
     INITCOMMONCONTROLSEX icex = { .dwSize = sizeof(icex), .dwICC = ICC_BAR_CLASSES };
     InitCommonControlsEx(&icex);
 
-    /* Initialize protocol module */
-    Protocol_Init();
+    /* Initialize echo example module */
+    ExampleEcho_Init();
 
     WNDCLASSEXW wc = {
         .cbSize = sizeof(WNDCLASSEXW),
