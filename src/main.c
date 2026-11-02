@@ -304,7 +304,18 @@ static void ApplyFontToEdit(HWND hEdit, LOGFONTW *plf)
     CHARFORMAT2W cf = {0};
     cf.cbSize = sizeof(CHARFORMAT2W);
     cf.dwMask = CFM_FACE | CFM_SIZE | CFM_WEIGHT;
-    cf.yHeight = plf->lfHeight * 15;  /* Convert to twips (1/1440 inch) */
+    /* Convert logical-pixel lfHeight to physical twips using the current DPI.
+       lfHeight is in logical pixels for the current DPI, and 1 logical pixel
+       = 1440/DPI twips. Hard-coding the 96-DPI factor (15) made the RichEdit
+       text appear too large on high-DPI displays. */
+    int dpi = 96;
+    HDC hdc = GetDC(hEdit);
+    if (hdc) {
+        dpi = GetDeviceCaps(hdc, LOGPIXELSY);
+        ReleaseDC(hEdit, hdc);
+    }
+    LONG px = plf->lfHeight < 0 ? -plf->lfHeight : plf->lfHeight;
+    cf.yHeight = (LONG)((LONGLONG)px * 1440 / dpi);
     cf.wWeight = (WORD)plf->lfWeight;
     lstrcpyW(cf.szFaceName, plf->lfFaceName);
     SendMessageW(hEdit, EM_SETCHARFORMAT, SCF_ALL, (LPARAM)&cf);

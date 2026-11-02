@@ -54,7 +54,14 @@ BOOL Config_GetFont(LOGFONTW *lf)
     if (size <= 0)
         return FALSE;
 
-    lf->lfHeight = -MulDiv(size, 96, 72);  /* Convert point size to pixels */
+    /* Convert point size to logical-pixel height at the current DPI. */
+    int dpi = 96;
+    HDC hdc = GetDC(NULL);
+    if (hdc) {
+        dpi = GetDeviceCaps(hdc, LOGPIXELSY);
+        ReleaseDC(NULL, hdc);
+    }
+    lf->lfHeight = -MulDiv(size, dpi, 72);
     lf->lfWeight = weight;
     lf->lfCharSet = DEFAULT_CHARSET;
     lf->lfOutPrecision = OUT_TT_PRECIS;
@@ -74,8 +81,14 @@ void Config_SetFont(const LOGFONTW *lf)
     if (!g_iniPath[0])
         return;
 
-    /* Calculate point size from pixel height */
-    int size = MulDiv(-lf->lfHeight, 72, 96);
+    /* Calculate point size from logical-pixel height at the current DPI. */
+    int dpi = 96;
+    HDC hdc = GetDC(NULL);
+    if (hdc) {
+        dpi = GetDeviceCaps(hdc, LOGPIXELSY);
+        ReleaseDC(NULL, hdc);
+    }
+    int size = MulDiv(-lf->lfHeight, 72, dpi);
 
     WCHAR buf[32];
     wsprintfW(buf, L"%d", size);
