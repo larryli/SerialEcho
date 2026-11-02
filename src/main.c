@@ -443,6 +443,45 @@ static INT_PTR CALLBACK AboutDlgProc(HWND hDlg, UINT msg, WPARAM wParam, LPARAM 
     return FALSE;
 }
 
+/* Current toolbar icon size; lets us rebuild only when DPI actually changes. */
+static int g_toolbarIconSize = 0;
+
+/* Window/monitor DPI for the given window (logical-pixel dots per inch). */
+static int GetMonitorDpi(HWND hWnd)
+{
+    int dpi = 96;
+    HDC hdc = GetDC(hWnd);
+    if (hdc) {
+        dpi = GetDeviceCaps(hdc, LOGPIXELSX);
+        ReleaseDC(hWnd, hdc);
+    }
+    return dpi;
+}
+
+/* Map a DPI to the toolbar icon size and bitmap resource. */
+static void ToolbarDpiSettings(int dpi, int *pIcon, UINT *pBmpId)
+{
+    if (dpi >= 120) { *pIcon = 32; *pBmpId = IDB_TOOLBAR32; }
+    else            { *pIcon = 16; *pBmpId = IDB_TOOLBAR; }
+}
+
+/* Add the standard toolbar buttons. Image indices 0..4 correspond to the
+   loaded 5-icon strip (Connect, Disconnect, Clear, Save, Ping). */
+static void ToolbarAddButtons(HWND hToolbar)
+{
+    TBBUTTON buttons[7] = {0};
+
+    buttons[0].iBitmap = 0; buttons[0].idCommand = IDM_CONNECT;    buttons[0].fsState = TBSTATE_ENABLED; buttons[0].fsStyle = BTNS_BUTTON; buttons[0].iString = -1;
+    buttons[1].iBitmap = 1; buttons[1].idCommand = IDM_DISCONNECT; buttons[1].fsState = 0;               buttons[1].fsStyle = BTNS_BUTTON; buttons[1].iString = -1;
+    buttons[2].iBitmap = 0; buttons[2].idCommand = -1;             buttons[2].fsState = 0;               buttons[2].fsStyle = BTNS_SEP;    buttons[2].iString = -1;
+    buttons[3].iBitmap = 4; buttons[3].idCommand = IDM_PING;       buttons[3].fsState = 0;               buttons[3].fsStyle = BTNS_BUTTON; buttons[3].iString = -1;
+    buttons[4].iBitmap = 0; buttons[4].idCommand = -1;             buttons[4].fsState = 0;               buttons[4].fsStyle = BTNS_SEP;    buttons[4].iString = -1;
+    buttons[5].iBitmap = 2; buttons[5].idCommand = IDM_LOG_CLEAR;  buttons[5].fsState = TBSTATE_ENABLED; buttons[5].fsStyle = BTNS_BUTTON; buttons[5].iString = -1;
+    buttons[6].iBitmap = 3; buttons[6].idCommand = IDM_LOG_SAVEAS; buttons[6].fsState = TBSTATE_ENABLED; buttons[6].fsStyle = BTNS_BUTTON; buttons[6].iString = -1;
+
+    SendMessageW(hToolbar, TB_ADDBUTTONS, 7, (LPARAM)buttons);
+}
+
 /* Main window procedure */
 static LRESULT CALLBACK MainWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
 {
@@ -458,16 +497,10 @@ static LRESULT CALLBACK MainWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM l
 
             SendMessageW(g_hToolbar, TB_BUTTONSTRUCTSIZE, sizeof(TBBUTTON), 0);
 
-            /* Choose toolbar icon size by current DPI (>= 120 -> 32x32 strip).
-               Recreate-time changes across monitors can be handled in WM_DPICHANGED. */
-            int icon = 16;
-            HDC hdcTB = GetDC(hWnd);
-            if (hdcTB) {
-                int dpi = GetDeviceCaps(hdcTB, LOGPIXELSX);
-                ReleaseDC(hWnd, hdcTB);
-                if (dpi >= 120) icon = 32;
-            }
-            UINT bmpId = (icon == 32) ? IDB_TOOLBAR32 : IDB_TOOLBAR;
+            /* Choose toolbar icon size by current DPI (>= 120 -> 32x32 strip). */
+            int dpi = GetMonitorDpi(hWnd);
+            int icon; UINT bmpId;
+            ToolbarDpiSettings(dpi, &icon, &bmpId);
 
             /* Set the per-icon bitmap size and a slightly larger button. */
             SendMessageW(g_hToolbar, TB_SETBITMAPSIZE, 0, MAKELPARAM(icon, icon));
@@ -478,54 +511,10 @@ static LRESULT CALLBACK MainWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM l
             TBADDBITMAP tbab = {0};
             tbab.hInst = hInst;
             tbab.nID = bmpId;
-            int iBase = (int)SendMessageW(g_hToolbar, TB_ADDBITMAP, 5, (LPARAM)&tbab);
+            SendMessageW(g_hToolbar, TB_ADDBITMAP, 5, (LPARAM)&tbab);
 
-            /* Toolbar buttons: Connect, Disconnect, separator, Ping, separator, Clear, Save */
-            TBBUTTON buttons[7] = {0};
-
-            buttons[0].iBitmap = iBase + 0;  /* Connect icon */
-            buttons[0].idCommand = IDM_CONNECT;
-            buttons[0].fsState = TBSTATE_ENABLED;
-            buttons[0].fsStyle = BTNS_BUTTON;
-            buttons[0].iString = -1;
-
-            buttons[1].iBitmap = iBase + 1;  /* Disconnect icon */
-            buttons[1].idCommand = IDM_DISCONNECT;
-            buttons[1].fsState = 0;  /* Disabled initially */
-            buttons[1].fsStyle = BTNS_BUTTON;
-            buttons[1].iString = -1;
-
-            buttons[2].iBitmap = 0;
-            buttons[2].idCommand = -1;
-            buttons[2].fsState = 0;
-            buttons[2].fsStyle = BTNS_SEP;
-            buttons[2].iString = -1;
-
-            buttons[3].iBitmap = iBase + 4;  /* Ping icon */
-            buttons[3].idCommand = IDM_PING;
-            buttons[3].fsState = 0;  /* Disabled initially */
-            buttons[3].fsStyle = BTNS_BUTTON;
-            buttons[3].iString = -1;
-
-            buttons[4].iBitmap = 0;
-            buttons[4].idCommand = -1;
-            buttons[4].fsState = 0;
-            buttons[4].fsStyle = BTNS_SEP;
-            buttons[4].iString = -1;
-
-            buttons[5].iBitmap = iBase + 2;  /* Clear icon */
-            buttons[5].idCommand = IDM_LOG_CLEAR;
-            buttons[5].fsState = TBSTATE_ENABLED;
-            buttons[5].fsStyle = BTNS_BUTTON;
-            buttons[5].iString = -1;
-
-            buttons[6].iBitmap = iBase + 3;  /* Save icon */
-            buttons[6].idCommand = IDM_LOG_SAVEAS;
-            buttons[6].fsState = TBSTATE_ENABLED;
-            buttons[6].fsStyle = BTNS_BUTTON;
-            buttons[6].iString = -1;
-
-            SendMessageW(g_hToolbar, TB_ADDBUTTONS, 7, (LPARAM)buttons);
+            ToolbarAddButtons(g_hToolbar);
+            g_toolbarIconSize = icon;
 
             /* Create status bar */
             g_hStatusbar = CreateWindowExW(0, STATUSCLASSNAMEW, NULL,
@@ -752,6 +741,48 @@ static LRESULT CALLBACK MainWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM l
         }
         DestroyWindow(hWnd);
         return 0;
+
+    case WM_DPICHANGED:
+        {
+            /* New DPI is in the low word of wParam. */
+            int newDpi = LOWORD(wParam);
+            int newIcon; UINT newBmpId;
+            ToolbarDpiSettings(newDpi, &newIcon, &newBmpId);
+
+            if (newIcon != g_toolbarIconSize && g_hToolbar) {
+                UINT oldBmpId = (g_toolbarIconSize == 32) ? IDB_TOOLBAR32 : IDB_TOOLBAR;
+                HINSTANCE hInst = GetModuleHandleW(NULL);
+
+                /* Update per-icon / button sizes for the new icon set. */
+                SendMessageW(g_hToolbar, TB_SETBITMAPSIZE, 0, MAKELPARAM(newIcon, newIcon));
+                SendMessageW(g_hToolbar, TB_SETBUTTONSIZE, 0, MAKELPARAM(newIcon + 7, newIcon + 6));
+
+                /* Swap the icon strip in place; image indices 0..4 stay valid,
+                   so the existing buttons keep working without re-adding. */
+                TBREPLACEBITMAP tbrb = {0};
+                tbrb.hInstOld = hInst;
+                tbrb.nIDOld   = oldBmpId;
+                tbrb.hInstNew = hInst;
+                tbrb.nIDNew   = newBmpId;
+                tbrb.nButtons = 5;
+                SendMessageW(g_hToolbar, TB_REPLACEBITMAP, 0, (LPARAM)&tbrb);
+
+                SendMessageW(g_hToolbar, TB_AUTOSIZE, 0, 0);
+                g_toolbarIconSize = newIcon;
+            }
+
+            /* Re-apply the log font; ApplyFontToEdit reads the current DPI
+               from the edit control's DC, so the point size stays correct. */
+            if (g_hEdit)
+                ApplyFontToEdit(g_hEdit, &g_logFont);
+
+            /* Resize the window to the rectangle suggested for the new DPI. */
+            RECT *prc = (RECT *)lParam;
+            SetWindowPos(hWnd, NULL, prc->left, prc->top,
+                         prc->right - prc->left, prc->bottom - prc->top,
+                         SWP_NOZORDER | SWP_NOACTIVATE);
+            return 0;
+        }
 
     case WM_DESTROY:
         /* Flush and shutdown log view subsystem */
