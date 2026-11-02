@@ -13,14 +13,25 @@
 ## 系统要求
 
 - Windows 10/11 (x64)
-- CMake 3.20+ / MSVC 编译器
+- CMake 3.20+
+  - MSVC（Visual Studio Build Tools）: 任意 3.20+
+  - Pelles C（编译器 id `PellesC`）: 需要 CMake 4.4.0+（原生支持）
 
-## 编译
+两种工具链自动检测，无需额外参数选择。每个工作区只使用一种工具链；
+切换工具链前请先删除 build 目录：`rmdir /s /q build`。
+
+## 编译（MSVC，多配置生成器）
 
 ```powershell
-mkdir build && cd build
-cmake .. -G "NMake Makefiles"
-cmake --build .
+cmake -B build
+cmake --build build --config Release -j
+```
+
+## 编译（Pelles C，CMake 4.4.0+，需 Ninja）
+
+```powershell
+cmake -G Ninja -DCMAKE_BUILD_TYPE=Release -B build
+cmake --build build
 ```
 
 选项：

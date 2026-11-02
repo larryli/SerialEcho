@@ -230,8 +230,8 @@ BOOL autoReply = Config_GetBool(L"MyProtocol", L"AutoReply", FALSE);
 ### 启用日志
 
 ```powershell
-cmake .. -DENABLE_TRACE_PROTO=ON   # 协议日志
-cmake .. -DENABLE_TRACE_FW=ON      # 框架日志
+cmake -B build -DENABLE_TRACE_PROTO=ON   # 协议日志
+cmake -B build -DENABLE_TRACE_FW=ON      # 框架日志
 ```
 
 ### 使用日志宏

@@ -446,12 +446,27 @@ static LRESULT CALLBACK MainWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM l
                 0, 0, 0, 0, hWnd, (HMENU)IDC_MAIN_TOOLBAR, hInst, NULL);
 
             SendMessageW(g_hToolbar, TB_BUTTONSTRUCTSIZE, sizeof(TBBUTTON), 0);
-            SendMessageW(g_hToolbar, TB_SETBITMAPSIZE, 0, MAKELPARAM(16, 16));
 
-            /* Load merged toolbar bitmap (5 icons: Connect, Disconnect, Clear, Save, Ping) */
+            /* Choose toolbar icon size by current DPI (>= 120 -> 32x32 strip).
+               Recreate-time changes across monitors can be handled in WM_DPICHANGED. */
+            int icon = 16;
+            HDC hdcTB = GetDC(hWnd);
+            if (hdcTB) {
+                int dpi = GetDeviceCaps(hdcTB, LOGPIXELSX);
+                ReleaseDC(hWnd, hdcTB);
+                if (dpi >= 120) icon = 32;
+            }
+            UINT bmpId = (icon == 32) ? IDB_TOOLBAR32 : IDB_TOOLBAR;
+
+            /* Set the per-icon bitmap size and a slightly larger button. */
+            SendMessageW(g_hToolbar, TB_SETBITMAPSIZE, 0, MAKELPARAM(icon, icon));
+            SendMessageW(g_hToolbar, TB_SETBUTTONSIZE, 0, MAKELPARAM(icon + 7, icon + 6));
+
+            /* Load merged toolbar bitmap (5 icons: Connect, Disconnect, Clear, Save, Ping).
+               wParam must be the real icon count so the strip is sliced correctly. */
             TBADDBITMAP tbab = {0};
             tbab.hInst = hInst;
-            tbab.nID = IDB_TOOLBAR;
+            tbab.nID = bmpId;
             int iBase = (int)SendMessageW(g_hToolbar, TB_ADDBITMAP, 5, (LPARAM)&tbab);
 
             /* Toolbar buttons: Connect, Disconnect, separator, Ping, separator, Clear, Save */
