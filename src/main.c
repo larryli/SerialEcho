@@ -443,11 +443,10 @@ static INT_PTR CALLBACK AboutDlgProc(HWND hDlg, UINT msg, WPARAM wParam, LPARAM 
     return FALSE;
 }
 
-/* Current toolbar icon size; lets us rebuild only when DPI actually changes. */
-static int g_toolbarIconSize = 0;
-
-/* Window/monitor DPI for the given window (logical-pixel dots per inch). */
-static int GetMonitorDpi(HWND hWnd)
+/* Pick the toolbar bitmap for the current process DPI.
+   The app is system-DPI aware, so this DPI is fixed for the process lifetime
+   and the icon set is chosen once at creation time. */
+static UINT ToolbarPickBitmap(HWND hWnd, int *pIcon)
 {
     int dpi = 96;
     HDC hdc = GetDC(hWnd);
@@ -455,14 +454,12 @@ static int GetMonitorDpi(HWND hWnd)
         dpi = GetDeviceCaps(hdc, LOGPIXELSX);
         ReleaseDC(hWnd, hdc);
     }
-    return dpi;
-}
-
-/* Map a DPI to the toolbar icon size and bitmap resource. */
-static void ToolbarDpiSettings(int dpi, int *pIcon, UINT *pBmpId)
-{
-    if (dpi >= 120) { *pIcon = 32; *pBmpId = IDB_TOOLBAR32; }
-    else            { *pIcon = 16; *pBmpId = IDB_TOOLBAR; }
+    if (dpi >= 120) {
+        *pIcon = 32;
+        return IDB_TOOLBAR32;
+    }
+    *pIcon = 16;
+    return IDB_TOOLBAR;
 }
 
 /* Add the standard toolbar buttons. Image indices 0..4 correspond to the
@@ -497,10 +494,10 @@ static LRESULT CALLBACK MainWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM l
 
             SendMessageW(g_hToolbar, TB_BUTTONSTRUCTSIZE, sizeof(TBBUTTON), 0);
 
-            /* Choose toolbar icon size by current DPI (>= 120 -> 32x32 strip). */
-            int dpi = GetMonitorDpi(hWnd);
-            int icon; UINT bmpId;
-            ToolbarDpiSettings(dpi, &icon, &bmpId);
+            /* Choose toolbar icon size by the system DPI (>= 120 -> 32x32 strip).
+               System DPI awareness keeps this constant for the process lifetime. */
+            int icon;
+            UINT bmpId = ToolbarPickBitmap(hWnd, &icon);
 
             /* Set the per-icon bitmap size and a slightly larger button. */
             SendMessageW(g_hToolbar, TB_SETBITMAPSIZE, 0, MAKELPARAM(icon, icon));
@@ -514,7 +511,6 @@ static LRESULT CALLBACK MainWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM l
             SendMessageW(g_hToolbar, TB_ADDBITMAP, 5, (LPARAM)&tbab);
 
             ToolbarAddButtons(g_hToolbar);
-            g_toolbarIconSize = icon;
 
             /* Create status bar */
             g_hStatusbar = CreateWindowExW(0, STATUSCLASSNAMEW, NULL,
@@ -741,48 +737,6 @@ static LRESULT CALLBACK MainWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM l
         }
         DestroyWindow(hWnd);
         return 0;
-
-    case WM_DPICHANGED:
-        {
-            /* New DPI is in the low word of wParam. */
-            int newDpi = LOWORD(wParam);
-            int newIcon; UINT newBmpId;
-            ToolbarDpiSettings(newDpi, &newIcon, &newBmpId);
-
-            if (newIcon != g_toolbarIconSize && g_hToolbar) {
-                UINT oldBmpId = (g_toolbarIconSize == 32) ? IDB_TOOLBAR32 : IDB_TOOLBAR;
-                HINSTANCE hInst = GetModuleHandleW(NULL);
-
-                /* Update per-icon / button sizes for the new icon set. */
-                SendMessageW(g_hToolbar, TB_SETBITMAPSIZE, 0, MAKELPARAM(newIcon, newIcon));
-                SendMessageW(g_hToolbar, TB_SETBUTTONSIZE, 0, MAKELPARAM(newIcon + 7, newIcon + 6));
-
-                /* Swap the icon strip in place; image indices 0..4 stay valid,
-                   so the existing buttons keep working without re-adding. */
-                TBREPLACEBITMAP tbrb = {0};
-                tbrb.hInstOld = hInst;
-                tbrb.nIDOld   = oldBmpId;
-                tbrb.hInstNew = hInst;
-                tbrb.nIDNew   = newBmpId;
-                tbrb.nButtons = 5;
-                SendMessageW(g_hToolbar, TB_REPLACEBITMAP, 0, (LPARAM)&tbrb);
-
-                SendMessageW(g_hToolbar, TB_AUTOSIZE, 0, 0);
-                g_toolbarIconSize = newIcon;
-            }
-
-            /* Re-apply the log font; ApplyFontToEdit reads the current DPI
-               from the edit control's DC, so the point size stays correct. */
-            if (g_hEdit)
-                ApplyFontToEdit(g_hEdit, &g_logFont);
-
-            /* Resize the window to the rectangle suggested for the new DPI. */
-            RECT *prc = (RECT *)lParam;
-            SetWindowPos(hWnd, NULL, prc->left, prc->top,
-                         prc->right - prc->left, prc->bottom - prc->top,
-                         SWP_NOZORDER | SWP_NOACTIVATE);
-            return 0;
-        }
 
     case WM_DESTROY:
         /* Flush and shutdown log view subsystem */
